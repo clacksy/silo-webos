@@ -75,6 +75,7 @@
         <div class="chips" id="grid-chips">
           <button class="chip" id="gt-sort">Sort: Name</button>
           <button class="chip" id="gt-filter">Show: All</button>
+          <button class="chip" id="gt-genre">Genre: All</button>
         </div>
         <div class="chips letters" id="grid-letters"></div>
       </div>
@@ -136,12 +137,20 @@
           <button id="pc-play" class="pc">Play</button>
           <button id="pc-next" class="pc">+10 s</button>
           <button id="pc-subs" class="pc">Subtitles</button>
+          <button id="pc-audio" class="pc hidden">Audio</button>
           <button id="pc-stop" class="pc">Stop</button>
         </div>
         <div class="player-status" id="player-status"></div>
       </div>
     </section>
 
+  </div>
+
+  <div id="picker" class="picker hidden">
+    <div class="picker-box">
+      <h2 id="picker-title"></h2>
+      <div id="picker-list" class="picker-list"></div>
+    </div>
   </div>
 
   <div id="fatal" class="fatal hidden"></div>

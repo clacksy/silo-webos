@@ -10,7 +10,7 @@
 
   var CLIENT = 'Silo webOS';
   var DEVICE = 'LG webOS TV';
-  var VERSION = '0.8.0';
+  var VERSION = '0.9.1';
   var TICKS = 10000000; // .NET ticks per second
 
   var LS = {
@@ -289,6 +289,12 @@
     }).then(function (r) { return (r && r.Items) || []; });
   };
 
+  Api.prototype.genres = function (parentId) {
+    return this.request('/Genres', {
+      query: { ParentId: parentId, UserId: this.userId, SortBy: 'SortName', SortOrder: 'Ascending' }
+    }).then(function (r) { return (r && r.Items) || []; });
+  };
+
   Api.prototype.favorites = function (limit) {
     return this.items({
       Filters: 'IsFavorite',
@@ -334,6 +340,7 @@
         SortOrder: opts.sortOrder || 'Ascending',
         Filters: opts.filters,
         NameStartsWithOrGreater: opts.nameFrom,
+        GenreIds: opts.genreIds,
         ImageTypeLimit: 1,
         EnableImageTypes: 'Primary',
         Fields: 'ProductionYear,RunTimeTicks,PrimaryImageAspectRatio',

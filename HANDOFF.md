@@ -4,10 +4,10 @@ Unofficial TV client for [Silo](https://siloserver.org/), a self-hosted media
 server. Built for one rooted LG C2 and installed on it. This document is for
 someone reviewing the code cold.
 
-**Status:** v0.8.0, installed on the TV and in use. Sign-in, browsing (with
+**Status:** v0.9.1, installed on the TV and in use. Sign-in, browsing (with
 sort, filter and A–Z jump), series with seasons and Next Up, search, settings,
 playback, resume and progress reporting all work, verified by
-`tools/smoke_test.py` (25/25). Embedded text subtitles in MKV files now appear
+`tools/smoke_test.py` (27/27). Embedded text subtitles in MKV files now appear
 within seconds, read straight from the file (see "Subtitles" in section 3).
 
 **Read section 6 first if you are reviewing this.**
@@ -105,6 +105,17 @@ below the fold were unreachable).
   `NameStartsWithOrGreater`. Each change is one 120-item request.
 - **Seeking:** repeated/held Left/Right accelerate (step, 1, 5, 10 min) and
   are applied once presses stop, so a long scrub is one new range request.
+- **Pickers (0.9):** a modal list (`openPicker`) used for subtitles (full
+  track names, duplicates numbered), audio and genre. Subtitle and audio
+  choices are remembered by language and applied to the next play; both can
+  be cleared in Settings.
+- **Audio tracks:** `video.audioTracks` works on webOS 25 for MKV and lists
+  only tracks the TV can decode (the 4K Evil Dead Burn remux: server lists 6
+  with TrueHD first, the TV lists 5). Names come from the server only when
+  the counts match; otherwise "EN 1", "EN 2"… Switching was confirmed via
+  DevTools (enabled flag moves, playback continues), not by ear.
+- **Grid memory:** posters more than 240 cards from the cursor are unloaded
+  and reloaded on return.
 - **Recovery:** "Buffering…" status; a mid-film error reconnects at the last
   position (up to 3 times, backing off); HLS only if the source can
   transcode; a 401 returns to sign-in with a message; the Home button pauses
@@ -166,7 +177,7 @@ running on the TV from a Mac:
 
 ```sh
 ssh -f -N -L 9998:127.0.0.1:9998 c2tv     # tunnel the TV's devtools port
-python3 tools/smoke_test.py               # 25 checks
+python3 tools/smoke_test.py               # 27 checks
 ```
 
 It uses two mechanisms:
@@ -186,7 +197,7 @@ openSearch, live search results, both tiles reached with real key presses,
 typing and Backspace in the search box, searching again from the results,
 Back closing the keyboard, Back from detail returning to search, the series page
 (seasons, Next Up Play target, season switching with keys), the library grid
-(title count, A–Z jump, sort cycling), and a final check that the `#fatal`
+(title count, A–Z jump, sort cycling, genre picker), and a final check that the `#fatal`
 error bar stayed empty.
 
 Known blind spots: playback control (needs content and a person watching),
@@ -218,8 +229,9 @@ Review order I would suggest: `build.py` (5 min, tells you nothing is hidden),
    only PGS tracks, and the "best" (4K) version of a film is often one of
    them. Supporting them means decoding PGS in JS and drawing to a canvas;
    `mkvsubs.js` can already locate the blocks the same way.
-4. **No audio-track switching.** Direct play cannot remux and the server has
-   transcoding off, so the UI only *displays* the active audio stream.
+4. **Audio tracks the TV cannot decode are invisible.** Probably TrueHD
+   (and possibly DTS-HD); the server cannot transcode, so those tracks cannot
+   be played at all. See "Audio tracks" above.
 5. **4K/HDR.** Direct play is confirmed 4K (decoder reported
    `3840x1608` HEVC ~25 Mbit/s). The LG "4K/HDR" OSD never appears — expected
    for third-party apps, but HDR10/Dolby Vision signalling is **unverified**
@@ -227,12 +239,10 @@ Review order I would suggest: `build.py` (5 min, tells you nothing is hidden),
 6. **Version picker is client-side only.** The chosen source is passed via
    `MediaSourceId` on the stream URL, not requested in the `PlaybackInfo` POST.
    Session reporting may therefore not reflect the chosen version.
-7. **Gaps:** no audio-track choice (the webOS `<video>` reports one audio
-   track; unconfirmed whether that is a platform limit), no subtitle picker
-   (OK cycles tracks), no genre filter, no profile switching, the grid keeps
-   every loaded card in the DOM, no `::cue` styling, no unit tests, no linting.
-   The 0.8.0 layouts (chips, season tabs) were checked via DevTools only, never
-   by eye.
+7. **Gaps:** no profile switching, image (PGS) subtitles, no `::cue`
+   styling, the grid keeps every loaded card node (images are trimmed), no
+   unit tests, no linting. The 0.8–0.9 layouts (chips, season tabs, picker)
+   were checked via DevTools only, never by eye.
 
 ## 6. Reviewer's guide — what I would scrutinise
 

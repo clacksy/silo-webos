@@ -9,7 +9,7 @@
 
   var api = new window.SiloApi();
   var $ = function (id) { return document.getElementById(id); };
-  var APP_VERSION = '0.8.0';
+  var APP_VERSION = '0.9.1';
 
   var state = {
     screen: 'connect',
@@ -57,7 +57,7 @@
   /* ============================ settings state ============================ */
 
   var SETTINGS_KEY = 'silo.settings';
-  var settings = { showResume: true, latestRows: 4, seekStep: 10, autoplayNext: true };
+  var settings = { showResume: true, latestRows: 4, seekStep: 10, autoplayNext: true, subLang: '', subForced: false, audioLang: '' };
 
   function loadSettings() {
     try {
@@ -515,6 +515,8 @@
     state.gridFilter = 0;
     state.gridLetter = 0;
     state.gridChip = 0;
+    state.gridLetterFocus = 0;
+    state.gridGenre = null;
     renderGridTools();
     return reloadGrid();
   }
@@ -526,6 +528,7 @@
       sortBy: sort.sortBy,
       sortOrder: sort.sortOrder,
       filters: GRID_FILTERS[state.gridFilter].filters,
+      genreIds: state.gridGenre ? state.gridGenre.Id : undefined,
       nameFrom: state.gridSort === 0 && letter !== '#' ? letter : undefined
     };
   }
@@ -533,6 +536,7 @@
   function renderGridTools() {
     $('gt-sort').textContent = 'Sort: ' + GRID_SORTS[state.gridSort].label;
     $('gt-filter').textContent = 'Show: ' + GRID_FILTERS[state.gridFilter].label;
+    $('gt-genre').textContent = 'Genre: ' + (state.gridGenre ? state.gridGenre.Name : 'All');
     var letters = $('grid-letters');
     if (!letters.children.length) {
       LETTERS.forEach(function (l) { letters.appendChild(el('button', 'chip', l)); });
@@ -587,6 +591,42 @@
     state.gridLoading = false;
   }
 
+  var genreCache = {};
+
+  async function chooseGenre() {
+    var view = state.gridView;
+    var genres = genreCache[view.Id];
+    if (!genres) {
+      try { genres = await api.genres(view.Id); } catch (e) { return; }
+      genreCache[view.Id] = genres;
+    }
+    if (state.screen !== 'grid' || state.gridView !== view) return;
+    var current = state.gridGenre ? genres.findIndex(function (g) { return g.Id === state.gridGenre.Id; }) + 1 : 0;
+    openPicker('Genre', ['All'].concat(genres.map(function (g) { return g.Name; })), current, function (i) {
+      state.gridGenre = i > 0 ? genres[i - 1] : null;
+      renderGridTools();
+      reloadGrid().then(function () { if (state.screen === 'grid') gridToolsFocus('chips', 2); });
+    });
+  }
+
+  // Posters far from the cursor are unloaded and reloaded when it comes back,
+  // so a long scroll through a big library doesn't hold thousands of images.
+  var KEEP_IMAGES = 240;
+  function trimGridImages() {
+    var at = state.gridIndex;
+    state.gridCards.forEach(function (card, i) {
+      var img = card.firstChild;
+      if (!img || img.tagName !== 'IMG') return;
+      var far = Math.abs(i - at) > KEEP_IMAGES;
+      if (far && img.getAttribute('src')) {
+        img.dataset.src = img.getAttribute('src');
+        img.removeAttribute('src');
+      } else if (!far && !img.getAttribute('src') && img.dataset.src) {
+        img.setAttribute('src', img.dataset.src);
+      }
+    });
+  }
+
   function gridSetFocus(i) {
     if (!state.gridCards.length) return;
     state.gridZone = 'cards';
@@ -595,6 +635,8 @@
     var card = state.gridCards[state.gridIndex];
     card.classList.add('focused');
     ensureVisible($('grid-wrap'), card);
+    state.gridMoves = (state.gridMoves || 0) + 1;
+    if (state.gridCards.length > KEEP_IMAGES * 2 && state.gridMoves % 12 === 0) trimGridImages();
 
     // Fetch the next page as the user approaches the end
     if (state.gridStart < state.gridTotal && state.gridIndex >= state.gridCards.length - 8) {
@@ -624,6 +666,7 @@
         else gridSetFocus(0);
         return true;
       }
+      if (code === 13 && state.gridChip === 2) { chooseGenre(); return true; }
       if (code === 13) {
         if (state.gridChip === 0) state.gridSort = (state.gridSort + 1) % GRID_SORTS.length;
         else state.gridFilter = (state.gridFilter + 1) % GRID_FILTERS.length;
@@ -1020,7 +1063,8 @@
   }
 
   function playerControlList() {
-    return [$('pc-prev'), $('pc-play'), $('pc-next'), $('pc-subs'), $('pc-stop')].filter(Boolean);
+    return [$('pc-prev'), $('pc-play'), $('pc-next'), $('pc-subs'), $('pc-audio'), $('pc-stop')]
+      .filter(function (b) { return b && !b.classList.contains('hidden'); });
   }
 
   function playerSetFocus(i) {
@@ -1158,6 +1202,8 @@
     if (!s) return;
     clearSubtitleTracks();
     if (index < 0) {
+      var offBtn = $('pc-subs');
+      if (offBtn) offBtn.textContent = subtitleLabel();
       playerStatus('Subtitles off');
       return;
     }
@@ -1237,16 +1283,106 @@
     if (btn) btn.textContent = subtitleLabel();
   }
 
-  function cycleSubtitle() {
+  function subtitleName(t) {
+    return t.DisplayTitle || (t.Language ? String(t.Language).toUpperCase() : 'Unknown');
+  }
+
+  // The choice is remembered by language (and forced-ness) and applied to
+  // whatever plays next.
+  function chooseSubtitle() {
     var s = state.player;
     if (!s) return;
     if (!s.subs || !s.subs.length) {
-      playerStatus('No subtitle tracks in this file');
+      playerStatus('No text subtitles in this file');
       return;
     }
-    s.subIndex += 1;
-    if (s.subIndex >= s.subs.length) s.subIndex = -1;
-    showSubtitle(s.subIndex);
+    var names = s.subs.map(subtitleName);
+    var options = ['Off'].concat(names.map(function (n, i) {
+      var same = names.filter(function (m) { return m === n; }).length;
+      if (same < 2) return n;
+      return n + '  ·  ' + (names.slice(0, i + 1).filter(function (m) { return m === n; }).length) + ' of ' + same;
+    }));
+    openPicker('Subtitles', options, s.subIndex + 1, function (i) {
+      if (state.player !== s) return;
+      s.subIndex = i - 1;
+      var t = s.subs[s.subIndex];
+      settings.subLang = t ? (t.Language || 'und') : '';
+      settings.subForced = !!(t && t.IsForced);
+      saveSettings();
+      showSubtitle(s.subIndex);
+    });
+  }
+
+  /* ---------------- audio tracks ---------------- */
+
+  // The webOS player exposes the file's audio tracks (only those it can
+  // decode, so there can be fewer than the server lists). Names come from the
+  // server when the counts line up; otherwise language plus a number.
+  function audioNames(session) {
+    var tracks = $('video').audioTracks;
+    var list = Array.prototype.slice.call(tracks || []);
+    var server = session.audio || [];
+    var lang = function (code) { return code ? String(code).toUpperCase() : 'Unknown'; };
+    return list.map(function (t, i) {
+      if (server.length === list.length) return server[i].DisplayTitle || lang(server[i].Language);
+      var same = list.filter(function (u) { return u.language === t.language; });
+      return lang(t.language) + (same.length > 1 ? ' ' + (same.indexOf(t) + 1) : '');
+    });
+  }
+
+  function enableAudio(index) {
+    var tracks = $('video').audioTracks;
+    for (var i = 0; i < tracks.length; i++) tracks[i].enabled = i === index;
+  }
+
+  function setupAudio(session) {
+    var tracks = $('video').audioTracks;
+    var btn = $('pc-audio');
+    var many = !!(tracks && tracks.length > 1);
+    btn.classList.toggle('hidden', !many);
+    if (!many) return;
+    if (settings.audioLang) {
+      for (var i = 0; i < tracks.length; i++) {
+        if (tracks[i].language === settings.audioLang) {
+          if (!tracks[i].enabled) enableAudio(i);
+          break;
+        }
+      }
+    }
+    btn.textContent = 'Audio: ' + audioNames(session)[enabledAudio()];
+  }
+
+  function enabledAudio() {
+    var tracks = $('video').audioTracks;
+    for (var i = 0; i < tracks.length; i++) if (tracks[i].enabled) return i;
+    return 0;
+  }
+
+  function chooseAudio() {
+    var s = state.player;
+    var tracks = $('video').audioTracks;
+    if (!s || !tracks || tracks.length < 2) return;
+    var names = audioNames(s);
+    openPicker('Audio', names, enabledAudio(), function (i) {
+      if (state.player !== s) return;
+      enableAudio(i);
+      settings.audioLang = tracks[i].language || '';
+      saveSettings();
+      $('pc-audio').textContent = 'Audio: ' + names[i];
+      playerStatus('Audio: ' + names[i]);
+    });
+  }
+
+  function preferredSubtitle(subs) {
+    if (!settings.subLang) return -1;
+    var best = -1;
+    for (var i = 0; i < subs.length; i++) {
+      var t = subs[i];
+      if ((t.Language || 'und') !== settings.subLang) continue;
+      if (!!t.IsForced === !!settings.subForced) return i;
+      if (best < 0) best = i;
+    }
+    return best;
   }
 
   async function playItem(item) {
@@ -1302,9 +1438,7 @@
     var subsBtn = $('pc-subs');
     if (subsBtn) subsBtn.textContent = subtitleLabel();
 
-    if (audio.length > 1) {
-      playerStatus('Audio: ' + (audio[0].DisplayTitle || audio[0].Language || 'track 1'));
-    }
+    $('pc-audio').classList.add('hidden');
 
     var startSeconds = 0;
     if (item.UserData && item.UserData.PlaybackPositionTicks) {
@@ -1323,6 +1457,7 @@
         if (at > 2 && at < video.duration - 5) {
           video.currentTime = at;
         }
+        setupAudio(session);
         var p = video.play();
         if (p && p.catch) p.catch(function () { playerStatus('Press OK to start playback'); });
         // Report the decoded resolution in the title so it can be read over SSH
@@ -1370,6 +1505,11 @@
 
     video.onplaying = function () {
       playerStatus('');
+      if (!session.autoSub) {
+        session.autoSub = true;
+        var pref = preferredSubtitle(session.subs);
+        if (pref >= 0) { session.subIndex = pref; showSubtitle(pref); }
+      }
       if (!session.reported) {
         session.reported = true;
         api.reportPlaying({
@@ -1537,6 +1677,30 @@
       { type: 'header', label: 'Playback' },
       { type: 'choice', label: 'Seek step', key: 'seekStep', options: [10, 30, 60], fmt: function (v) { return v + ' seconds'; } },
       { type: 'toggle', label: 'Play next episode automatically', key: 'autoplayNext' },
+      {
+        type: 'action',
+        label: 'Subtitles turn on automatically',
+        value: settings.subLang ? String(settings.subLang).toUpperCase() + (settings.subForced ? ' (forced)' : '') + ' — OK to turn off' : 'Off',
+        run: function () {
+          settings.subLang = '';
+          saveSettings();
+          var f = state.settingsFocus;
+          openSettings();
+          settingsSetFocus(f);
+        }
+      },
+      {
+        type: 'action',
+        label: 'Preferred audio language',
+        value: settings.audioLang ? String(settings.audioLang).toUpperCase() + ' — OK to clear' : 'File default',
+        run: function () {
+          settings.audioLang = '';
+          saveSettings();
+          var f = state.settingsFocus;
+          openSettings();
+          settingsSetFocus(f);
+        }
+      },
       { type: 'header', label: 'About' },
       { type: 'info', label: 'App version', value: APP_VERSION },
       { type: 'info', label: 'Device ID', value: api.deviceId },
@@ -1708,6 +1872,48 @@
     return false;
   }
 
+  /* ============================ picker ============================ */
+
+  // A modal list over any screen: Up/Down move, OK picks, Back closes.
+  function openPicker(title, options, selected, onPick) {
+    var list = $('picker-list');
+    list.innerHTML = '';
+    list.scrollTop = 0;
+    var rows = options.map(function (label, i) {
+      var row = el('div', 'picker-row' + (i === selected ? ' selected' : ''), label);
+      list.appendChild(row);
+      return row;
+    });
+    $('picker-title').textContent = title;
+    $('picker').classList.remove('hidden');
+    state.picker = { rows: rows, index: 0, onPick: onPick };
+    pickerFocus(Math.max(0, selected));
+  }
+
+  function pickerFocus(i) {
+    var p = state.picker;
+    p.index = Math.max(0, Math.min(p.rows.length - 1, i));
+    p.rows.forEach(function (r, k) { r.classList.toggle('focused', k === p.index); });
+    ensureVisible($('picker-list'), p.rows[p.index]);
+  }
+
+  function closePicker() {
+    if (!state.picker) return;
+    state.picker = null;
+    $('picker').classList.add('hidden');
+  }
+
+  function pickerKey(code) {
+    var p = state.picker;
+    if (code === 38) pickerFocus(p.index - 1);
+    if (code === 40) pickerFocus(p.index + 1);
+    if (code === 13) {
+      var pick = p.index;
+      closePicker();
+      p.onPick(pick);
+    }
+  }
+
   /* ============================ back ============================ */
 
   function handleBack() {
@@ -1757,6 +1963,13 @@
 
   document.addEventListener('keydown', function (ev) {
     var code = ev.keyCode || ev.which;
+
+    if (state.picker) {
+      ev.preventDefault();
+      if (code === 461 || code === 27 || code === 8) closePicker();
+      else pickerKey(code);
+      return;
+    }
 
     if (code === 461 || code === 27 || code === 8) {
       var typing = document.activeElement && document.activeElement.tagName === 'INPUT';
@@ -1812,7 +2025,8 @@
   $('pc-prev').addEventListener('click', function () { skipBy(-1); });
   $('pc-play').addEventListener('click', function () { togglePlay(); });
   $('pc-next').addEventListener('click', function () { skipBy(1); });
-  $('pc-subs').addEventListener('click', function () { cycleSubtitle(); });
+  $('pc-subs').addEventListener('click', function () { chooseSubtitle(); });
+  $('pc-audio').addEventListener('click', function () { chooseAudio(); });
   $('pc-stop').addEventListener('click', function () { stopPlayback('detail'); });
 
   // Keep focus model in sync when the user clicks with the pointer remote
