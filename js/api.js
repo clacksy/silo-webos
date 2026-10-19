@@ -10,7 +10,7 @@
 
   var CLIENT = 'Silo webOS';
   var DEVICE = 'LG webOS TV';
-  var VERSION = '0.10.0';
+  var VERSION = '0.10.1';
   var TICKS = 10000000; // .NET ticks per second
 
   var LS = {

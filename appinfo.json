@@ -1,6 +1,6 @@
 {
   "id": "org.silo.webos",
-  "version": "0.10.0",
+  "version": "0.10.1",
   "vendor": "silo-webos",
   "type": "web",
   "main": "index.html",

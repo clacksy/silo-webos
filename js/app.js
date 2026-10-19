@@ -9,7 +9,7 @@
 
   var api = new window.SiloApi();
   var $ = function (id) { return document.getElementById(id); };
-  var APP_VERSION = '0.10.0';
+  var APP_VERSION = '0.10.1';
 
   var state = {
     screen: 'connect',
@@ -1033,7 +1033,24 @@
 
   /* ============================ player ============================ */
 
+  // The overlay (title, progress, time) fades after a few seconds of playback
+  // and comes back on any key, on pause, and with any status message.
+  var overlayTimer = null;
+
+  function wakeOverlay() {
+    var overlay = $('player-overlay');
+    overlay.classList.remove('fade');
+    clearTimeout(overlayTimer);
+    overlayTimer = setTimeout(function () {
+      if (state.screen !== 'player' || $('video').paused || state.playerControls ||
+          state.picker || state.pendingNext || seek.target !== null) return;
+      overlay.classList.add('fade');
+      $('player-status').textContent = '';
+    }, 4000);
+  }
+
   function playerStatus(msg) {
+    if (msg && state.screen === 'player') wakeOverlay();
     var n = $('player-status');
     if (n) n.textContent = msg || '';
   }
@@ -1508,6 +1525,7 @@
     };
 
     video.onplaying = function () {
+      wakeOverlay();
       playerStatus('');
       if (!session.autoSub) {
         session.autoSub = true;
@@ -1550,7 +1568,10 @@
       updateSkip(session);
       playerTick();
     };
-    video.onpause = playerTick;
+    video.onpause = function () {
+      playerTick();
+      wakeOverlay();
+    };
 
     begin(api.directStreamUrl(item.Id, source), startSeconds);
   }
@@ -2125,6 +2146,8 @@
       handleBack();
       return;
     }
+
+    if (state.screen === 'player') wakeOverlay();
 
     var handled = false;
     switch (state.screen) {
