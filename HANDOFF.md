@@ -4,7 +4,7 @@ Unofficial TV client for [Silo](https://siloserver.org/), a self-hosted media
 server. Built for one rooted LG C2 and installed on it. This document is for
 someone reviewing the code cold.
 
-**Status:** v0.10.0, installed on the TV and in use. Sign-in, browsing (with
+**Status:** v0.10.1, installed on the TV and in use. Sign-in, browsing (with
 sort, filter and A–Z jump), series with seasons and Next Up, search, settings,
 playback, resume and progress reporting all work, verified by
 `tools/smoke_test.py` (30/30). Embedded text subtitles in MKV files now appear
@@ -169,6 +169,10 @@ The webOS `<video>` element does not expose embedded MKV text tracks
 `build.py` writes an IPK by hand: `ar` archive of `debian-binary`,
 `control.tar.gz`, `data.tar.gz` (payload under
 `usr/palm/applications/org.silo.webos/`). Push and install over SSH:
+
+Use `tools/deploy.sh`: it builds, installs and relaunches, and **refuses
+while the app is playing something** (installing restarts the app and cuts
+off whatever is being watched; `--force` overrides). The manual steps are:
 
 ```sh
 cd ~/silo-webos && python3 build.py
