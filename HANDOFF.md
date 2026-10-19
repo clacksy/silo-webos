@@ -113,6 +113,34 @@ ssh c2tv 'curl -s http://127.0.0.1:9998/json | grep -o "\"title\": *\"[^\"]*\""'
 A red error bar (`#fatal`) also surfaces uncaught exceptions and unhandled
 rejections on screen, because console output is invisible on a TV.
 
+## 3a. Testing (added after review)
+
+There is a **DevTools smoke test** at `tools/smoke_test.py`. It drives the app
+running on the TV from a Mac:
+
+```sh
+ssh -f -N -L 9998:127.0.0.1:9998 c2tv     # tunnel the TV's devtools port
+python3 tools/smoke_test.py               # 9 checks
+```
+
+It uses two mechanisms:
+
+1. `window.__silo` — a diagnostics hook in `js/app.js` exposing `api`, `state`,
+   `openSearch`, `openSettings`, `runSearch`, `enterHome`, etc. Needed because
+   the whole app is wrapped in an IIFE, so nothing is visible in page scope.
+2. `Input.dispatchKeyEvent` — sends real arrow/Enter/Back key presses, so the
+   remote-control path is exercised end to end, not just the functions.
+
+**Why this exists:** the first four builds were only verified by file presence
+plus `document.title` telemetry. That is not testing. A later patch deleted the
+entire settings and search implementation while leaving their call sites behind,
+and it went unnoticed because nothing ever *exercised* those screens. The smoke
+test now covers: openSettings, settings row rendering, `api.publicInfo()`,
+openSearch, live search results, and both tiles reached with real key presses.
+
+Known blind spots: playback control (needs content and a person watching),
+subtitle rendering (same), and anything visual — there is no screenshot path.
+
 ## 4. Known issues
 
 1. **Subtitle extraction is pathologically slow (server-side).**

@@ -200,6 +200,10 @@
     return session;
   };
 
+  Api.prototype.publicInfo = function () {
+    return this.request('/System/Info/Public');
+  };
+
   /* ---------------- content ---------------- */
 
   Api.prototype.views = function () {

@@ -1110,6 +1110,187 @@
     return false;
   }
 
+  /* ============================ settings screen ============================ */
+
+  function signOutNow() {
+    api.signOut();
+    try { localStorage.setItem('silo.signedOut', '1'); } catch (e) { /* ignore */ }
+    state.rows = [];
+    state.serverInfo = null;
+    show('connect');
+    connectSetFocus(0);
+  }
+
+  function settingEntries() {
+    var info = state.serverInfo || {};
+    return [
+      { type: 'header', label: 'Account' },
+      { type: 'info', label: 'Profile', value: api.userName || '—' },
+      { type: 'info', label: 'Server', value: (info.ServerName || 'Silo') + (info.Version ? '  ·  ' + info.Version : '') },
+      { type: 'action', label: 'Sign out', run: signOutNow },
+      { type: 'header', label: 'Home screen' },
+      { type: 'toggle', label: 'Continue watching', key: 'showResume' },
+      { type: 'choice', label: 'Recently added rows', key: 'latestRows', options: [2, 4, 6], fmt: function (v) { return v + ' libraries'; } },
+      { type: 'header', label: 'Playback' },
+      { type: 'choice', label: 'Seek step', key: 'seekStep', options: [10, 30, 60], fmt: function (v) { return v + ' seconds'; } },
+      { type: 'header', label: 'About' },
+      { type: 'info', label: 'App version', value: APP_VERSION },
+      { type: 'info', label: 'Device ID', value: api.deviceId },
+      { type: 'action', label: 'Reload app', run: function () { location.reload(); } }
+    ];
+  }
+
+  function settingDisplay(e) {
+    if (e.type === 'toggle') return settings[e.key] ? 'On' : 'Off';
+    if (e.type === 'choice') return e.fmt ? e.fmt(settings[e.key]) : String(settings[e.key]);
+    return e.value || '';
+  }
+
+  function openSettings() {
+    show('settings');
+    var list = $('settings-list');
+    list.innerHTML = '';
+    state.settingsRows = [];
+
+    settingEntries().forEach(function (e) {
+      if (e.type === 'header') {
+        list.appendChild(el('div', 'set-header', e.label));
+        return;
+      }
+      var rowEl = el('div', 'set-row' + (e.type === 'info' ? ' is-info' : ''));
+      rowEl.appendChild(el('span', 'set-label', e.label));
+      var valueEl = el('span', 'set-value', settingDisplay(e));
+      rowEl.appendChild(valueEl);
+      list.appendChild(rowEl);
+      state.settingsRows.push({
+        entry: e,
+        el: rowEl,
+        valueEl: valueEl,
+        focusable: e.type === 'action' || e.type === 'toggle' || e.type === 'choice'
+      });
+    });
+
+    settingsSetFocus(0);
+  }
+
+  function settingsFocusables() {
+    return state.settingsRows.filter(function (r) { return r.focusable; });
+  }
+
+  function settingsSetFocus(i) {
+    var list = settingsFocusables();
+    if (!list.length) return;
+    state.settingsFocus = Math.max(0, Math.min(list.length - 1, i));
+    clearFocus();
+    var row = list[state.settingsFocus];
+    row.el.classList.add('focused');
+    ensureVisible($('settings-list'), row.el);
+  }
+
+  function changeSetting(row, direction) {
+    var e = row.entry;
+    if (e.type === 'toggle') {
+      settings[e.key] = !settings[e.key];
+    } else if (e.type === 'choice') {
+      var idx = e.options.indexOf(settings[e.key]);
+      if (idx === -1) idx = 0;
+      idx = (idx + direction + e.options.length) % e.options.length;
+      settings[e.key] = e.options[idx];
+    }
+    saveSettings();
+    row.valueEl.textContent = settingDisplay(e);
+  }
+
+  function settingsKey(code) {
+    if (code === 38) { settingsSetFocus(state.settingsFocus - 1); return true; }
+    if (code === 40) { settingsSetFocus(state.settingsFocus + 1); return true; }
+    var list = settingsFocusables();
+    var row = list[state.settingsFocus];
+    if (!row) return false;
+    if (code === 37) { changeSetting(row, -1); return true; }
+    if (code === 39) { changeSetting(row, 1); return true; }
+    if (code === 13) {
+      if (row.entry.type === 'action') { row.entry.run(); return true; }
+      changeSetting(row, 1);
+      return true;
+    }
+    return false;
+  }
+
+  /* ============================ search ============================ */
+
+  function openSearch() {
+    show('search');
+    var input = $('search-input');
+    input.value = '';
+    $('search-grid').innerHTML = '';
+    $('search-hint').textContent = 'Type a title, then press OK';
+    state.searchCards = [];
+    state.searchIndex = 0;
+    clearFocus();
+    input.focus(); // raises the webOS on-screen keyboard
+  }
+
+  async function runSearch(term) {
+    term = (term || '').trim();
+    if (!term) return;
+    var grid = $('search-grid');
+    grid.innerHTML = '';
+    state.searchCards = [];
+    state.searchIndex = 0;
+    $('search-hint').textContent = 'Searching…';
+
+    var items = [];
+    try {
+      items = await api.search(term, 60);
+    } catch (e) {
+      $('search-hint').textContent = 'Search failed: ' + (e.message || 'unknown error');
+      return;
+    }
+
+    $('search-hint').textContent = items.length
+      ? (items.length + ' result' + (items.length === 1 ? '' : 's') + ' for "' + term + '"')
+      : ('No results for "' + term + '"');
+
+    items.forEach(function (item) {
+      var card = makeCard(item, {});
+      card.classList.add('grid-card');
+      card.__item = item;
+      grid.appendChild(card);
+      state.searchCards.push(card);
+    });
+
+    $('search-input').blur();
+    if (state.searchCards.length) searchSetFocus(0);
+  }
+
+  function searchSetFocus(i) {
+    if (!state.searchCards.length) return;
+    state.searchIndex = Math.max(0, Math.min(state.searchCards.length - 1, i));
+    clearFocus();
+    var card = state.searchCards[state.searchIndex];
+    card.classList.add('focused');
+    ensureVisible($('search-wrap'), card);
+  }
+
+  function searchKey(code) {
+    var input = $('search-input');
+    if (document.activeElement === input) {
+      if (code === 13) { runSearch(input.value); return true; }
+      return false; // the on-screen keyboard owns every other key
+    }
+    if (code === 13) {
+      var card = state.searchCards[state.searchIndex];
+      if (card && card.__item) openDetail(card.__item.Id);
+      return true;
+    }
+    if (code === 37) { searchSetFocus(state.searchIndex - 1); return true; }
+    if (code === 39) { searchSetFocus(state.searchIndex + 1); return true; }
+    if (code === 38) { searchSetFocus(state.searchIndex - state.gridCols); return true; }
+    if (code === 40) { searchSetFocus(state.searchIndex + state.gridCols); return true; }
+    return false;
+  }
+
   /* ============================ back ============================ */
 
   function handleBack() {
@@ -1200,9 +1381,26 @@
     }
   });
 
+  /* ============================ diagnostics ============================ */
+  // Exposed for the DevTools smoke test (see HANDOFF.md). Function
+  // declarations are hoisted, so these references resolve.
+  window.__silo = {
+    api: api,
+    state: state,
+    settings: settings,
+    show: show,
+    enterHome: enterHome,
+    openSearch: openSearch,
+    openSettings: openSettings,
+    runSearch: runSearch,
+    settingsKey: settingsKey,
+    searchKey: searchKey
+  };
+
   /* ============================ boot ============================ */
 
   (async function boot() {
+    loadSettings();
     // A session seeded into js/seed.js wins: no sign-in on the TV needed.
     var seed = window.SILO_SEED;
     var signedOut = false;
