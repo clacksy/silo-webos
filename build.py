@@ -7,17 +7,19 @@ An IPK is an `ar` archive containing, in order:
     data.tar.gz     the payload (usr/palm/applications/<id>/...)
 """
 import io
+import json
 import os
 import tarfile
 import time
 
 APP_ID = "org.silo.webos"
-VERSION = "0.1.0"
 ROOT = os.path.dirname(os.path.abspath(__file__))
+with open(os.path.join(ROOT, "appinfo.json")) as fh:
+    VERSION = json.load(fh)["version"]
 OUT = os.path.join(ROOT, "silo-webos.ipk")
 
-SKIP_NAMES = {".DS_Store", "build.py", "make-icons.py", "silo-webos.ipk", "README.md", "seed.example.js"}
-SKIP_DIRS = {"__pycache__", ".git"}
+SKIP_NAMES = {".DS_Store", "build.py", "make-icons.py", "silo-webos.ipk", "README.md", "HANDOFF.md", "seed.example.js"}
+SKIP_DIRS = {"__pycache__", ".git", "tools"}
 
 
 def tar_gz(members):

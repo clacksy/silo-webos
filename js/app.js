@@ -9,7 +9,7 @@
 
   var api = new window.SiloApi();
   var $ = function (id) { return document.getElementById(id); };
-  var APP_VERSION = '0.6.0';
+  var APP_VERSION = '0.7.0';
 
   var state = {
     screen: 'connect',
@@ -36,10 +36,13 @@
     detailSourceIndex: 0,
     detailPlayback: null,
     detailFocus: 0, // 0 = play button, 1..n = episodes
+    detailFrom: 'home',
+    detailSeq: 0,
     episodeCards: [],
     // search
     searchCards: [],
     searchIndex: 0,
+    searchSeq: 0,
     // player
     player: null,
     playerControls: false,
@@ -75,6 +78,8 @@
 
   function show(name) {
     state.screen = name;
+    var active = document.activeElement;
+    if (active && active.tagName === 'INPUT') active.blur();
     // Reflect the screen in the document title: it is visible to DevOps tooling
     // over SSH (webapp-dev-tools /json), which makes remote diagnosis possible.
     try { document.title = 'Silo · ' + name; } catch (e) { /* ignore */ }
@@ -439,7 +444,7 @@
     } catch (e) { /* ignore */ }
   }
 
-  async function homeKey(code) {
+  function homeKey(code) {
     if (code === 38) {
       if (state.rowIndex === 0) return true;
       var keepCol = state.colIndex;
@@ -520,7 +525,7 @@
     if (code === 40) { gridSetFocus(state.gridIndex + cols); return true; }
     if (code === 13) {
       var card = state.gridCards[state.gridIndex];
-      if (card && card.__item) openDetail(card.__item.Id);
+      if (card && card.__item) openDetail(card.__item.Id, 'grid');
       return true;
     }
     return false;
@@ -575,7 +580,10 @@
     $('detail-version').textContent = 'Version: ' + sourceLabel(sources[state.detailSourceIndex]);
   }
 
-  async function openDetail(id) {
+  async function openDetail(id, from) {
+    var seq = ++state.detailSeq;
+    var current = function () { return seq === state.detailSeq && state.screen === 'detail'; };
+    state.detailFrom = from || 'home';
     show('detail');
     $('detail-episodes').classList.add('hidden');
     $('episode-track').innerHTML = '';
@@ -587,7 +595,8 @@
     $('detail-version').classList.add('hidden');
 
     var item = null;
-    try { item = await api.item(id); } catch (e) { show('home'); return; }
+    try { item = await api.item(id); } catch (e) { if (current()) handleBack(); return; }
+    if (!current()) return;
     state.detailItem = item;
 
     var title = item.Name || '';
@@ -620,6 +629,7 @@
     if (item.Type !== 'Series') {
       try {
         var info = await api.playbackInfo(item.Id);
+        if (!current()) return;
         var sources = (info && info.MediaSources) || [];
         if (sources.length > 1) {
           state.detailPlayback = info;
@@ -635,6 +645,7 @@
     if (item.Type === 'Series') {
       try {
         var eps = await api.episodes(item.Id);
+        if (!current()) return;
         if (eps.length) {
           $('detail-episodes').classList.remove('hidden');
           eps.forEach(function (ep) {
@@ -654,7 +665,7 @@
       } catch (e) { /* no episodes */ }
     }
 
-    detailSetFocus(0);
+    if (current()) detailSetFocus(0);
   }
 
   async function toggleWatched() {
@@ -824,40 +835,63 @@
       if (t.parentNode) t.parentNode.removeChild(t);
     });
     state.subCues = 0;
+    var s = state.player;
+    if (s && s.mkvTracks) {
+      Object.keys(s.mkvTracks).forEach(function (k) { if (s.mkvTracks[k]) s.mkvTracks[k].hide(); });
+    }
+  }
+
+  // Embedded subtitles read straight from the MKV's own index (js/mkvsubs.js):
+  // instant, and far lighter on the server than asking it to extract them.
+  function mkvTrackFor(session, stream) {
+    var key = String(stream.Index);
+    if (session.mkvTracks[key] !== undefined) return Promise.resolve(session.mkvTracks[key]);
+    if (!session.mkvFile) {
+      session.mkvFile = window.MkvSubs.open(api.directStreamUrl(session.item.Id, session.source))
+        .catch(function () { return null; });
+    }
+    return session.mkvFile.then(function (file) {
+      if (session.mkvTracks[key] === undefined) {
+        var track = null;
+        try {
+          track = file && window.MkvSubs.attach(file, stream.Index, $('video'),
+            stream.DisplayTitle || stream.Language || 'Track', stream.Language);
+        } catch (e) { /* fall back to server extraction */ }
+        session.mkvTracks[key] = track || null;
+      }
+      return session.mkvTracks[key];
+    });
   }
 
   // Text tracks are fetched with an opaque response unless the element is
   // CORS-enabled, which silently yields zero cues. Fetching the WebVTT here and
   // serving it as a blob URL makes it same-origin, so it always loads.
+  // The server extracts every embedded text track of a file in one pass
+  // (minutes for a large remux) and caches them all, so the first embedded
+  // request is the only slow one; later ones wait for it, then return instantly.
   function subtitleTextFor(session, stream) {
     var key = String(stream.Index);
     if (session.subCache[key] !== undefined) return Promise.resolve(session.subCache[key]);
     if (session.subPending[key]) return session.subPending[key];
 
-    var promise = api.subtitleText(session.item.Id, session.source.Id, stream.Index)
-      .then(function (text) {
-        session.subCache[key] = text;
-        delete session.subPending[key];
-        return text;
-      }, function (err) {
-        delete session.subPending[key];
-        throw err;
-      });
-    session.subPending[key] = promise;
-    return promise;
-  }
+    var embedded = !stream.IsExternal;
+    var ready = embedded && session.extraction
+      ? session.extraction.catch(function () {})
+      : Promise.resolve();
 
-  // Warm the cache in the background so turning subtitles on is instant when
-  // the server takes a minute to extract them.
-  async function prefetchSubtitles(session) {
-    // One track only: extraction is ~150s each, so warming three is pointless
-    var ordered = session.subs.slice().sort(function (a, b) {
-      return (b.IsDefault ? 1 : 0) - (a.IsDefault ? 1 : 0);
-    }).slice(0, 1);
-    for (var i = 0; i < ordered.length; i++) {
-      if (state.player !== session) return;
-      try { await subtitleTextFor(session, ordered[i]); } catch (e) { /* retried on demand */ }
-    }
+    var promise = ready.then(function () {
+      return api.subtitleText(session.item.Id, session.source.Id, stream.Index);
+    }).then(function (text) {
+      session.subCache[key] = text;
+      delete session.subPending[key];
+      return text;
+    }, function (err) {
+      delete session.subPending[key];
+      throw err;
+    });
+    session.subPending[key] = promise;
+    if (embedded && !session.extraction) session.extraction = promise;
+    return promise;
   }
 
   async function showSubtitle(index) {
@@ -874,6 +908,19 @@
       return;
     }
 
+    if (!stream.IsExternal && /mkv/i.test(s.source.Container || '')) {
+      playerStatus('Loading subtitles…');
+      var mkvTrack = await mkvTrackFor(s, stream);
+      if (state.player !== s || s.subIndex !== index) return;
+      if (mkvTrack) {
+        mkvTrack.show();
+        playerStatus('Subtitles on');
+        var subsBtn = $('pc-subs');
+        if (subsBtn) subsBtn.textContent = subtitleLabel();
+        return;
+      }
+    }
+
     var key = String(stream.Index);
     var text = s.subCache[key];
     if (text === undefined) {
@@ -881,17 +928,19 @@
       playerStatus('Loading subtitles…');
       var ticker = setInterval(function () {
         var secs = Math.round((Date.now() - started) / 1000);
-        playerStatus('Loading subtitles… ' + secs + 's (server is extracting them)');
+        playerStatus('Loading subtitles… ' + secs + 's (first time for this file can take ~3 min)');
       }, 1000);
 
       try {
         text = await subtitleTextFor(s, stream);
       } catch (e) {
         clearInterval(ticker);
+        if (state.player !== s || s.subIndex !== index) return;
         playerStatus('Subtitles unavailable: ' + (e.message || 'error'));
         return;
       }
       clearInterval(ticker);
+      if (state.player !== s || s.subIndex !== index) return;
     }
 
     if (!text || text.indexOf('WEBVTT') === -1) {
@@ -962,7 +1011,9 @@
     }
     if (!source) source = pickBestSource((info && info.MediaSources) || []);
     var streams = (source && source.MediaStreams) || [];
-    var subs = streams.filter(function (s) { return s.Type === 'Subtitle'; });
+    var subs = streams.filter(function (s) {
+      return s.Type === 'Subtitle' && s.IsTextSubtitleStream !== false;
+    });
     var audio = streams.filter(function (s) { return s.Type === 'Audio'; });
 
     var session = {
@@ -973,6 +1024,8 @@
       subIndex: -1,
       subCache: {},
       subPending: {},
+      mkvFile: null,
+      mkvTracks: {},
       playSessionId: (info && info.PlaySessionId) || '',
       reported: false,
       timer: null,
@@ -1058,10 +1111,6 @@
       }, 10000);
       clearInterval(session.ticker);
       session.ticker = setInterval(playerTick, 500);
-      if (!session.prefetched) {
-        session.prefetched = true;
-        setTimeout(function () { prefetchSubtitles(session); }, 2500);
-      }
     };
 
     video.ontimeupdate = playerTick;
@@ -1074,14 +1123,21 @@
     var s = state.player;
     var video = $('video');
     if (s) {
+      clearSubtitleTracks();
       if (s.timer) clearInterval(s.timer);
       if (s.ticker) clearInterval(s.ticker);
+      var stoppedTicks = api.toTicks(video.currentTime || 0);
       api.reportStopped({
         ItemId: s.item.Id,
         MediaSourceId: s.source && s.source.Id,
         PlaySessionId: s.playSessionId,
-        PositionTicks: api.toTicks(video.currentTime || 0)
+        PositionTicks: stoppedTicks
       });
+      s.item.UserData = s.item.UserData || {};
+      s.item.UserData.PlaybackPositionTicks = stoppedTicks;
+      if (state.detailItem === s.item) {
+        $('detail-play').textContent = stoppedTicks ? ('Resume from ' + fmtRuntime(stoppedTicks)) : 'Play';
+      }
       state.player = null;
     }
     video.pause();
@@ -1228,13 +1284,19 @@
     $('search-hint').textContent = 'Type a title, then press OK';
     state.searchCards = [];
     state.searchIndex = 0;
+    state.searchSeq++;
+    focusSearchInput();
+  }
+
+  function focusSearchInput() {
     clearFocus();
-    input.focus(); // raises the webOS on-screen keyboard
+    $('search-input').focus(); // raises the webOS on-screen keyboard
   }
 
   async function runSearch(term) {
     term = (term || '').trim();
     if (!term) return;
+    var seq = ++state.searchSeq;
     var grid = $('search-grid');
     grid.innerHTML = '';
     state.searchCards = [];
@@ -1245,9 +1307,11 @@
     try {
       items = await api.search(term, 60);
     } catch (e) {
+      if (seq !== state.searchSeq) return;
       $('search-hint').textContent = 'Search failed: ' + (e.message || 'unknown error');
       return;
     }
+    if (seq !== state.searchSeq) return;
 
     $('search-hint').textContent = items.length
       ? (items.length + ' result' + (items.length === 1 ? '' : 's') + ' for "' + term + '"')
@@ -1282,12 +1346,17 @@
     }
     if (code === 13) {
       var card = state.searchCards[state.searchIndex];
-      if (card && card.__item) openDetail(card.__item.Id);
+      if (card && card.__item) openDetail(card.__item.Id, 'search');
+      else focusSearchInput();
       return true;
     }
     if (code === 37) { searchSetFocus(state.searchIndex - 1); return true; }
     if (code === 39) { searchSetFocus(state.searchIndex + 1); return true; }
-    if (code === 38) { searchSetFocus(state.searchIndex - state.gridCols); return true; }
+    if (code === 38) {
+      if (state.searchIndex < state.gridCols) focusSearchInput();
+      else searchSetFocus(state.searchIndex - state.gridCols);
+      return true;
+    }
     if (code === 40) { searchSetFocus(state.searchIndex + state.gridCols); return true; }
     return false;
   }
@@ -1300,14 +1369,26 @@
         stopPlayback('detail');
         return;
       case 'detail':
-        show(state.rows.length ? 'home' : 'connect');
-        if (state.rows.length) rowSetFocus(state.rowIndex, state.colIndex);
+        state.detailSeq++;
+        if (state.detailFrom === 'grid') {
+          show('grid');
+          gridSetFocus(state.gridIndex);
+        } else if (state.detailFrom === 'search') {
+          show('search');
+          if (state.searchCards.length) searchSetFocus(state.searchIndex);
+          else focusSearchInput();
+        } else {
+          show(state.rows.length ? 'home' : 'connect');
+          if (state.rows.length) rowSetFocus(state.rowIndex, state.colIndex);
+        }
         return;
       case 'grid':
         show('home');
         if (state.rows.length) rowSetFocus(state.rowIndex, state.colIndex);
         return;
       case 'search':
+        state.searchSeq++;
+        $('search-input').blur();
         show('home');
         if (state.rows.length) rowSetFocus(state.rowIndex, state.colIndex);
         return;
@@ -1329,6 +1410,21 @@
     var code = ev.keyCode || ev.which;
 
     if (code === 461 || code === 27 || code === 8) {
+      var typing = document.activeElement && document.activeElement.tagName === 'INPUT';
+      if (typing && code === 8) return;
+      if (typing) {
+        document.activeElement.blur();
+        if (state.screen === 'connect') {
+          ev.preventDefault();
+          connectSetFocus(state.connectFocus);
+          return;
+        }
+        if (state.screen === 'search' && state.searchCards.length) {
+          ev.preventDefault();
+          searchSetFocus(state.searchIndex);
+          return;
+        }
+      }
       ev.preventDefault();
       stopQuickConnect();
       handleBack();

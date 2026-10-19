@@ -4,10 +4,10 @@ Unofficial TV client for [Silo](https://siloserver.org/), a self-hosted media
 server. Built for one rooted LG C2 and installed on it. This document is for
 someone reviewing the code cold.
 
-**Status:** v0.6.0, installed on the TV and in use. Sign-in, browsing, search,
+**Status:** v0.7.0, installed on the TV and in use. Sign-in, browsing, search,
 settings, playback, resume and progress reporting all work, verified by
-`tools/smoke_test.py` (9/9). Subtitles work but are crippled by server-side
-extraction latency (see Issues #1).
+`tools/smoke_test.py` (16/16). Embedded text subtitles in MKV files now appear
+within seconds, read straight from the file (see "Subtitles" in section 3).
 
 **Read section 6 first if you are reviewing this.**
 
@@ -24,7 +24,7 @@ extraction latency (see Issues #1).
 
 There is no CI, no linter, and no test suite. This folder was originally created
 inside an unrelated Ember repository and moved out to keep it off that project's
-lint pipeline; it is only now becoming a git repo, with a single initial commit.
+lint pipeline; it became a git repo on 2026-10-19.
 
 ## 2. Environment facts
 
@@ -51,11 +51,13 @@ appinfo.json      webOS manifest (id org.silo.webos, 1920x1080, disableBackHisto
 index.html        all screens in one document
 css/app.css       dark TV styling, focus rings, player overlay
 js/api.js         Jellyfin-compatible API client (auth, Quick Connect, media, sessions)
+js/mkvsubs.js     reads embedded subtitle lines straight from MKV files (range requests)
 js/app.js         screens, remote-key navigation, playback, subtitles
 js/seed.js        session seed (GITIGNORED — contains a live token)
 js/seed.example.js template for the above
 build.py          builds the IPK in pure Python (ar + tarfile)
 make-icons.py     generates icons/splash with Pillow
+tools/smoke_test.py  DevTools smoke test run against the TV (not packaged)
 ```
 
 ### Screens
@@ -87,6 +89,27 @@ below the fold were unreachable).
 - Multiple versions: `PlaybackInfo` returns several `MediaSources`; the app
   defaults to highest `MediaStreams[Video].Height` then highest `BitRate`, with
   a `Version:` button on the detail screen to cycle.
+
+### Subtitles
+
+Only text subtitles are offered; image subtitles (Blu-ray PGS) are skipped.
+
+1. **Embedded track in an MKV** → `js/mkvsubs.js`. MKV files (mkvmerge output)
+   index every subtitle line in their `Cues` element. The app range-requests
+   the file header and the index once (~130 KB, ~2.5 s), then fetches each
+   line (a few hundred bytes) just ahead of the playback position, at most two
+   requests at a time, into a `TextTrack` via `addTextTrack()` + `VTTCue`.
+   Measured on the TV: subtitles on in ~4 s, correct line on screen within
+   seconds of a 30-minute seek, 45 small requests for the whole test.
+2. **Anything else** (no index, not MKV, sidecar `.srt`) → the server's
+   `/Subtitles/{index}/Stream.vtt`, fetched and attached as a `blob:` track.
+   Sidecars return in 0.4 s. Embedded tracks via this path cost one
+   full-file read on the server: 190 s for a 20 GB remux, after which every
+   track of that file is cached and returns in 0.3 s. Timeout is 360 s,
+   because aborting early appears to discard the server's work.
+
+The webOS `<video>` element does not expose embedded MKV text tracks
+(`textTracks` is empty), so there is no native path.
 
 ### Packaging and deploy
 
@@ -123,7 +146,7 @@ running on the TV from a Mac:
 
 ```sh
 ssh -f -N -L 9998:127.0.0.1:9998 c2tv     # tunnel the TV's devtools port
-python3 tools/smoke_test.py               # 9 checks
+python3 tools/smoke_test.py               # 16 checks
 ```
 
 It uses two mechanisms:
@@ -139,7 +162,10 @@ plus `document.title` telemetry. That is not testing. A later patch deleted the
 entire settings and search implementation while leaving their call sites behind,
 and it went unnoticed because nothing ever *exercised* those screens. The smoke
 test now covers: openSettings, settings row rendering, `api.publicInfo()`,
-openSearch, live search results, and both tiles reached with real key presses.
+openSearch, live search results, both tiles reached with real key presses,
+typing and Backspace in the search box, searching again from the results,
+Back closing the keyboard, Back from detail returning to search, and a final
+check that the `#fatal` error bar stayed empty.
 
 Known blind spots: playback control (needs content and a person watching),
 subtitle rendering (same), and anything visual — there is no screenshot path.
@@ -156,19 +182,20 @@ Review order I would suggest: `build.py` (5 min, tells you nothing is hidden),
 
 ## 4. Known issues
 
-1. **Subtitle extraction is pathologically slow (server-side).**
-   `GET /Videos/{id}/{mediaSourceId}/Subtitles/{index}/Stream.vtt` measured at
-   **0.4 s, 75 s, 149.6 s**, with 2 of 3 tracks timing out at 150 s. One film
-   has 14 text tracks. Nothing appears to be cached between requests. The app
-   pre-fetches up to 3 tracks in the background (should be 1 — each is ~150 s),
-   shows a live elapsed counter, and times out at 120 s.
+1. **The server rate-limits (HTTP 429), and it is a shared server.** Bursts of
+   API calls get 429s. Keep request counts low: no background prefetching, no
+   warming jobs, nothing that makes the server read whole files on spec.
+   Server-side subtitle extraction reads the entire file, so the app only
+   triggers it when someone selects a track that `mkvsubs.js` cannot read.
+   (Earlier "nothing is cached" notes were wrong: the old 120 s client timeout
+   was shorter than the extraction, so it never finished.)
 2. **MediaSource IDs are not stable.** A `MediaSourceId` captured earlier later
    returned 404 from the subtitle endpoint. The app always takes `source.Id`
    from a fresh `PlaybackInfo`, so it works, but any caching of IDs is unsafe.
-3. **`<track>` fetches are opaque without CORS.** A cross-origin `<track>`
-   silently yields zero cues even though the endpoint sends
-   `access-control-allow-origin: *`. Current workaround: `fetch()` the WebVTT,
-   wrap in a `Blob`, use a `blob:` URL, plus `crossOrigin="anonymous"`.
+3. **Image subtitles (PGS) are not supported.** Many Blu-ray remuxes have
+   only PGS tracks, and the "best" (4K) version of a film is often one of
+   them. Supporting them means decoding PGS in JS and drawing to a canvas;
+   `mkvsubs.js` can already locate the blocks the same way.
 4. **No audio-track switching.** Direct play cannot remux and the server has
    transcoding off, so the UI only *displays* the active audio stream.
 5. **4K/HDR.** Direct play is confirmed 4K (decoder reported
@@ -180,7 +207,7 @@ Review order I would suggest: `build.py` (5 min, tells you nothing is hidden),
    Session reporting may therefore not reflect the chosen version.
 7. **Gaps:** no watchlist, no season grouping (a series shows one flat episode
    row), no next-episode autoplay, no `::cue` subtitle styling, 120-item pages
-   with auto-load, no tests, no linting.
+   with auto-load, no unit tests, no linting.
 
 ## 6. Reviewer's guide — what I would scrutinise
 
@@ -207,8 +234,10 @@ Review order I would suggest: `build.py` (5 min, tells you nothing is hidden),
 
 - **Tested and working:** sign-in, browse, search, settings, grid paging,
   detail, watched/favourite, resume reporting. Covered by the smoke test.
-- **Written but never observed working:** subtitle rendering (network path
-  proven, pixels never seen), HLS fallback, playing an episode from a series.
+- **Observed via DevTools, pixels never seen:** MKV subtitles (cues loaded
+  and active at the right time after a seek, on the TV).
+- **Written but never observed working:** HLS fallback, playing an episode
+  from a series, the server-extraction subtitle path end to end on the TV.
 - **Never verified at all:** HDR/Dolby Vision actually reaching the panel,
   audio passthrough, behaviour on any TV other than this one.
 
@@ -227,3 +256,16 @@ confirmation came from `document.title` telemetry and the DevTools protocol.
    offsets, `.srt` instead of `.vtt`)?
 4. The focus/navigation code is hand-rolled and duplicated per screen — worth
    restructuring before adding seasons/watchlist?
+
+### Answers (review, 2026-10-19)
+
+1. The `<track>` failure was CORS: a track's fetch mode comes from the
+   `<video>` element's `crossorigin`, not the track's. `blob:` worked; MKV
+   subtitles now use `addTextTrack()` + `VTTCue`, which avoids `<track>`.
+2. No public webOS API shows the HDR badge for a web app. To check HDR is
+   reaching the panel, open Picture Mode during playback: the mode names
+   change (e.g. "Cinema (HDR)", "Dolby Vision Cinema") when it is.
+3. Plausible: extraction reads the whole file. Answered by `mkvsubs.js`.
+4. Yes, restructure into one shared focus-list helper plus a navigation stack
+   before seasons/watchlist. Back now returns to the screen detail was opened
+   from, but that is a per-case fix, not a stack.

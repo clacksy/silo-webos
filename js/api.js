@@ -10,7 +10,7 @@
 
   var CLIENT = 'Silo webOS';
   var DEVICE = 'LG webOS TV';
-  var VERSION = '0.6.0';
+  var VERSION = '0.7.0';
   var TICKS = 10000000; // .NET ticks per second
 
   var LS = {
@@ -334,13 +334,14 @@
       '?maxHeight=' + (maxHeight || 420) + '&quality=90&api_key=' + encodeURIComponent(this.token);
   };
 
-  // Silo extracts embedded subtitles to WebVTT on demand, which can take tens
-  // of seconds, so this needs its own generous timeout and an abort path.
+  // Silo extracts embedded subtitles to WebVTT on demand, which took 190s for a
+  // 20 GB remux. Aborting early appears to throw that work away, so the
+  // timeout must comfortably exceed it.
   Api.prototype.subtitleText = function (itemId, mediaSourceId, index, timeoutMs) {
     var url = this.subtitleUrl(itemId, mediaSourceId, index);
     var headers = this.headers();
     var controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
-    var limit = timeoutMs || 120000;
+    var limit = timeoutMs || 360000;
     var timer = controller ? setTimeout(function () { controller.abort(); }, limit) : null;
 
     return fetch(url, { headers: headers, signal: controller ? controller.signal : undefined })
