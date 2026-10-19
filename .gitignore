@@ -1,0 +1,7 @@
+# build artefact
+silo-webos.ipk
+
+# live session token — never commit this
+js/seed.js
+
+.DS_Store

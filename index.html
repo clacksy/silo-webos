@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Silo</title>
+  <link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+  <div id="app">
+
+    <!-- ============ CONNECT ============ -->
+    <section id="screen-connect" class="screen active">
+      <div class="connect-wrap">
+        <div class="brand">
+          <span class="brand-mark"><span class="brand-ring"></span><span class="brand-play"></span></span>
+          <h1>Silo</h1>
+        </div>
+        <p class="hint">Enter your Silo server's <strong>Jellyfin-compatible</strong> address.</p>
+
+        <label class="field">
+          <span>Server address</span>
+          <input id="server-url" type="text" inputmode="url" spellcheck="false" autocomplete="off"
+                 placeholder="http://192.168.1.50:8096">
+        </label>
+
+        <div class="tabs" role="tablist">
+          <button class="tab active" data-tab="quick" role="tab">Quick Connect</button>
+          <button class="tab" data-tab="pass" role="tab">Password</button>
+        </div>
+
+        <div class="pane active" id="pane-quick">
+          <button id="qc-start" class="primary">Start Quick Connect</button>
+          <div id="qc-code-wrap" class="qc hidden">
+            <div class="qc-code" id="qc-code">------</div>
+            <p class="hint">Open <span class="mono" id="qc-url">http://your-server/activate</span>
+              on your phone or computer and enter this code.</p>
+            <p class="hint dim" id="qc-status">Waiting for approval…</p>
+          </div>
+        </div>
+
+        <div class="pane" id="pane-pass">
+          <label class="field">
+            <span>Username</span>
+            <input id="username" type="text" spellcheck="false" autocomplete="username"
+                   placeholder="you or you#Profile">
+          </label>
+          <label class="field">
+            <span>Password</span>
+            <input id="password" type="password" autocomplete="current-password">
+          </label>
+          <button id="pass-signin" class="primary">Sign in</button>
+        </div>
+
+        <p class="error" id="connect-error"></p>
+      </div>
+    </section>
+
+    <!-- ============ HOME ============ -->
+    <section id="screen-home" class="screen">
+      <header class="topbar">
+        <div class="logo"><span class="logo-dot"></span>Silo</div>
+        <div class="topbar-right" id="home-user"></div>
+      </header>
+      <main id="home-rows" class="rows"></main>
+    </section>
+
+    <!-- ============ LIBRARY GRID ============ -->
+    <section id="screen-grid" class="screen">
+      <header class="topbar"><div class="logo" id="grid-title">Library</div></header>
+      <main id="grid-wrap" class="grid-wrap"><div id="grid" class="grid"></div></main>
+    </section>
+
+    <!-- ============ DETAIL ============ -->
+    <section id="screen-detail" class="screen">
+      <div class="detail-bg" id="detail-bg"></div>
+      <div class="detail-scrim"></div>
+      <div class="detail-content">
+        <img id="detail-poster" class="detail-poster" alt="">
+        <div class="detail-meta">
+          <h1 id="detail-title"></h1>
+          <p class="detail-sub" id="detail-sub"></p>
+          <p class="detail-overview" id="detail-overview"></p>
+          <div class="detail-actions">
+            <button id="detail-play" class="primary">Play</button>
+            <button id="detail-watched" class="secondary">Mark watched</button>
+            <button id="detail-fav" class="secondary">Add favorite</button>
+            <button id="detail-version" class="secondary hidden">Version</button>
+          </div>
+        </div>
+      </div>
+      <div id="detail-episodes" class="detail-episodes hidden">
+        <h2>Episodes</h2>
+        <div id="episode-row" class="row"><div class="row-track" id="episode-track"></div></div>
+      </div>
+    </section>
+
+    <!-- ============ SETTINGS ============ -->
+    <section id="screen-settings" class="screen">
+      <header class="topbar"><div class="logo">Settings</div></header>
+      <main id="settings-list" class="settings"></main>
+    </section>
+
+    <!-- ============ SEARCH ============ -->
+    <section id="screen-search" class="screen">
+      <header class="topbar"><div class="logo">Search</div></header>
+      <div class="search-bar">
+        <input id="search-input" type="text" spellcheck="false" autocomplete="off"
+               placeholder="Search movies and shows">
+      </div>
+      <p class="hint dim" id="search-hint">Type a title, then press OK</p>
+      <main id="search-wrap" class="grid-wrap">
+        <div id="search-grid" class="grid"></div>
+      </main>
+    </section>
+
+    <!-- ============ PLAYER ============ -->
+    <section id="screen-player" class="screen">
+      <video id="video" playsinline></video>
+      <div class="player-overlay" id="player-overlay">
+        <div class="player-title" id="player-title"></div>
+        <div class="po-barwrap"><div class="po-bar" id="po-bar"></div></div>
+        <div class="po-time" id="po-time">0:00 / 0:00</div>
+        <div class="po-controls hidden" id="po-controls">
+          <button id="pc-prev" class="pc">-10 s</button>
+          <button id="pc-play" class="pc">Play</button>
+          <button id="pc-next" class="pc">+10 s</button>
+          <button id="pc-subs" class="pc">Subtitles</button>
+          <button id="pc-stop" class="pc">Stop</button>
+        </div>
+        <div class="player-status" id="player-status"></div>
+      </div>
+    </section>
+
+  </div>
+
+  <div id="fatal" class="fatal hidden"></div>
+
+  <script src="js/seed.js"></script>
+  <script src="js/api.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>

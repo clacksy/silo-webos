@@ -1,0 +1,18 @@
+{
+  "id": "org.silo.webos",
+  "version": "0.5.0",
+  "vendor": "silo-webos",
+  "type": "web",
+  "main": "index.html",
+  "title": "Silo",
+  "appDescription": "Silo client for LG webOS TVs",
+  "icon": "icons/icon.png",
+  "largeIcon": "icons/largeIcon.png",
+  "bgImage": "icons/bg.png",
+  "splashBackground": "icons/splash.png",
+  "iconColor": "#0b0d10",
+  "bgColor": "#0b0d10",
+  "resolution": "1920x1080",
+  "disableBackHistoryAPI": true,
+  "handlesRelaunch": false
+}
