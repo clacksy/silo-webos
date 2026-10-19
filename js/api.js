@@ -10,7 +10,7 @@
 
   var CLIENT = 'Silo webOS';
   var DEVICE = 'LG webOS TV';
-  var VERSION = '0.7.0';
+  var VERSION = '0.8.0';
   var TICKS = 10000000; // .NET ticks per second
 
   var LS = {
@@ -143,6 +143,7 @@
           if (!msg) msg = text ? text.slice(0, 180) : (res.status + ' ' + res.statusText);
           var err = new Error(msg);
           err.status = res.status;
+          if (res.status === 401 && self.onUnauthorized) self.onUnauthorized();
           throw err;
         });
       }
@@ -218,21 +219,6 @@
     });
   };
 
-  Api.prototype.libraryItems = function (parentId, start, limit) {
-    return this.items({
-      ParentId: parentId,
-      IncludeItemTypes: 'Movie,Series',
-      Recursive: true,
-      SortBy: 'SortName',
-      SortOrder: 'Ascending',
-      ImageTypeLimit: 1,
-      EnableImageTypes: 'Primary',
-      Fields: 'ProductionYear,RunTimeTicks,PrimaryImageAspectRatio',
-      StartIndex: start || 0,
-      Limit: limit || 120
-    });
-  };
-
   Api.prototype.resumeItems = function (limit) {
     return this.request('/Users/' + this.userId + '/Items/Resume', {
       query: {
@@ -261,15 +247,59 @@
     return this.request('/Users/' + this.userId + '/Items/' + itemId);
   };
 
-  Api.prototype.episodes = function (seriesId) {
+  Api.prototype.seasons = function (seriesId) {
+    return this.request('/Shows/' + seriesId + '/Seasons', {
+      query: { UserId: this.userId, Fields: 'ChildCount' }
+    }).then(function (r) { return (r && r.Items) || []; });
+  };
+
+  Api.prototype.episodes = function (seriesId, seasonId) {
     return this.request('/Shows/' + seriesId + '/Episodes', {
       query: {
         UserId: this.userId,
+        SeasonId: seasonId,
         ImageTypeLimit: 1,
         EnableImageTypes: 'Primary',
         Fields: 'Overview,RunTimeTicks'
       }
     }).then(function (r) { return (r && r.Items) || []; });
+  };
+
+  // The episode after `episode` in series order, or null at the end.
+  Api.prototype.nextEpisode = function (episode) {
+    return this.request('/Shows/' + episode.SeriesId + '/Episodes', {
+      query: { UserId: this.userId, StartItemId: episode.Id, Limit: 2, Fields: 'RunTimeTicks' }
+    }).then(function (r) {
+      var items = (r && r.Items) || [];
+      return items.length > 1 && items[0].Id === episode.Id ? items[1] : null;
+    });
+  };
+
+  Api.prototype.nextUp = function (opts) {
+    opts = opts || {};
+    return this.request('/Shows/NextUp', {
+      query: {
+        UserId: this.userId,
+        SeriesId: opts.seriesId,
+        Limit: opts.limit || 16,
+        ImageTypeLimit: 1,
+        EnableImageTypes: 'Primary',
+        Fields: 'RunTimeTicks'
+      }
+    }).then(function (r) { return (r && r.Items) || []; });
+  };
+
+  Api.prototype.favorites = function (limit) {
+    return this.items({
+      Filters: 'IsFavorite',
+      IncludeItemTypes: 'Movie,Series',
+      Recursive: true,
+      SortBy: 'SortName',
+      Limit: limit || 16,
+      ImageTypeLimit: 1,
+      EnableImageTypes: 'Primary',
+      Fields: 'ProductionYear'
+    });
   };
 
   Api.prototype.playbackInfo = function (itemId) {
@@ -292,14 +322,18 @@
     });
   };
 
-  Api.prototype.libraryPage = function (parentId, start, limit) {
+  // opts: sortBy, sortOrder, filters (e.g. IsUnplayed), nameFrom (a letter)
+  Api.prototype.libraryPage = function (parentId, start, limit, opts) {
+    opts = opts || {};
     return this.request('/Users/' + this.userId + '/Items', {
       query: {
         ParentId: parentId,
         IncludeItemTypes: 'Movie,Series',
         Recursive: true,
-        SortBy: 'SortName',
-        SortOrder: 'Ascending',
+        SortBy: opts.sortBy || 'SortName',
+        SortOrder: opts.sortOrder || 'Ascending',
+        Filters: opts.filters,
+        NameStartsWithOrGreater: opts.nameFrom,
         ImageTypeLimit: 1,
         EnableImageTypes: 'Primary',
         Fields: 'ProductionYear,RunTimeTicks,PrimaryImageAspectRatio',

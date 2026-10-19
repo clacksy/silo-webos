@@ -196,8 +196,18 @@ button.primary.focused { background: #3a4a63; border-color: var(--accent); }
 }
 
 /* ---------- GRID ---------- */
+.grid-tools { padding: 0 60px 6px; }
+.chips { display: flex; gap: 10px; margin: 0 0 10px; flex-wrap: nowrap; }
+.chip {
+  background: transparent; border: 2px solid #2a3444; padding: 8px 20px;
+  font-size: 19px; color: var(--dim); border-radius: 999px; white-space: nowrap;
+}
+.chip.active { color: var(--fg); border-color: var(--accent); }
+.chip.focused { background: #26303f; color: var(--fg); border-color: var(--accent); transform: scale(1.04); }
+.letters .chip { padding: 6px 0; width: 46px; font-size: 17px; text-align: center; }
+.letters.hidden { display: none; }
 .grid-wrap {
-  height: calc(100% - 90px);
+  height: calc(100% - 200px);
   padding: 10px 60px 60px;
   overflow-y: auto;
   overflow-x: hidden;
@@ -305,7 +315,8 @@ button.primary.focused { background: #3a4a63; border-color: var(--accent); }
 .detail-episodes {
   position: absolute; left: 80px; right: 80px; bottom: 40px;
 }
-.detail-episodes h2 { font-size: 22px; color: var(--dim); font-weight: 500; margin: 0 0 10px; }
+.detail-episodes .chips { overflow: hidden; }
+.card .card-label .played { color: var(--accent); margin-left: 6px; }
 .detail-episodes .row { margin: 0; }
 
 /* ---------- PLAYER ---------- */

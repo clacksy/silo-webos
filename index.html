@@ -67,7 +67,17 @@
 
     <!-- ============ LIBRARY GRID ============ -->
     <section id="screen-grid" class="screen">
-      <header class="topbar"><div class="logo" id="grid-title">Library</div></header>
+      <header class="topbar">
+        <div class="logo" id="grid-title">Library</div>
+        <div class="topbar-right" id="grid-count"></div>
+      </header>
+      <div class="grid-tools">
+        <div class="chips" id="grid-chips">
+          <button class="chip" id="gt-sort">Sort: Name</button>
+          <button class="chip" id="gt-filter">Show: All</button>
+        </div>
+        <div class="chips letters" id="grid-letters"></div>
+      </div>
       <main id="grid-wrap" class="grid-wrap"><div id="grid" class="grid"></div></main>
     </section>
 
@@ -90,7 +100,7 @@
         </div>
       </div>
       <div id="detail-episodes" class="detail-episodes hidden">
-        <h2>Episodes</h2>
+        <div class="chips" id="season-tabs"></div>
         <div id="episode-row" class="row"><div class="row-track" id="episode-track"></div></div>
       </div>
     </section>

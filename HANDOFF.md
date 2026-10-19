@@ -4,9 +4,10 @@ Unofficial TV client for [Silo](https://siloserver.org/), a self-hosted media
 server. Built for one rooted LG C2 and installed on it. This document is for
 someone reviewing the code cold.
 
-**Status:** v0.7.0, installed on the TV and in use. Sign-in, browsing, search,
-settings, playback, resume and progress reporting all work, verified by
-`tools/smoke_test.py` (16/16). Embedded text subtitles in MKV files now appear
+**Status:** v0.8.0, installed on the TV and in use. Sign-in, browsing (with
+sort, filter and A–Z jump), series with seasons and Next Up, search, settings,
+playback, resume and progress reporting all work, verified by
+`tools/smoke_test.py` (25/25). Embedded text subtitles in MKV files now appear
 within seconds, read straight from the file (see "Subtitles" in section 3).
 
 **Read section 6 first if you are reviewing this.**
@@ -90,6 +91,25 @@ below the fold were unreachable).
   defaults to highest `MediaStreams[Video].Height` then highest `BitRate`, with
   a `Version:` button on the detail screen to cycle.
 
+### Series, library and player behaviour (0.8.0)
+
+- **Series page:** season tabs (Left/Right, loads after a 350 ms pause), an
+  episode row per season (✓ = watched), and Play aimed at Next Up
+  ("Resume S2:E3 from 12m"). Returning from the player re-reads Next Up and
+  the shown season (two requests).
+- **Next episode:** when an episode ends, a 10 s countdown plays the next one
+  (OK now, Back cancels). Setting: "Play next episode automatically".
+- **Home:** Continue watching, Next up, Favourites, Recently added, Libraries.
+- **Library grid:** chips for Sort (Name, Date added, Year, Rating) and Show
+  (All, Unwatched, Favourites); with Name sort, a letter row jumps via
+  `NameStartsWithOrGreater`. Each change is one 120-item request.
+- **Seeking:** repeated/held Left/Right accelerate (step, 1, 5, 10 min) and
+  are applied once presses stop, so a long scrub is one new range request.
+- **Recovery:** "Buffering…" status; a mid-film error reconnects at the last
+  position (up to 3 times, backing off); HLS only if the source can
+  transcode; a 401 returns to sign-in with a message; the Home button pauses
+  and reports position.
+
 ### Subtitles
 
 Only text subtitles are offered; image subtitles (Blu-ray PGS) are skipped.
@@ -146,7 +166,7 @@ running on the TV from a Mac:
 
 ```sh
 ssh -f -N -L 9998:127.0.0.1:9998 c2tv     # tunnel the TV's devtools port
-python3 tools/smoke_test.py               # 16 checks
+python3 tools/smoke_test.py               # 25 checks
 ```
 
 It uses two mechanisms:
@@ -164,8 +184,10 @@ and it went unnoticed because nothing ever *exercised* those screens. The smoke
 test now covers: openSettings, settings row rendering, `api.publicInfo()`,
 openSearch, live search results, both tiles reached with real key presses,
 typing and Backspace in the search box, searching again from the results,
-Back closing the keyboard, Back from detail returning to search, and a final
-check that the `#fatal` error bar stayed empty.
+Back closing the keyboard, Back from detail returning to search, the series page
+(seasons, Next Up Play target, season switching with keys), the library grid
+(title count, A–Z jump, sort cycling), and a final check that the `#fatal`
+error bar stayed empty.
 
 Known blind spots: playback control (needs content and a person watching),
 subtitle rendering (same), and anything visual — there is no screenshot path.
@@ -205,9 +227,12 @@ Review order I would suggest: `build.py` (5 min, tells you nothing is hidden),
 6. **Version picker is client-side only.** The chosen source is passed via
    `MediaSourceId` on the stream URL, not requested in the `PlaybackInfo` POST.
    Session reporting may therefore not reflect the chosen version.
-7. **Gaps:** no watchlist, no season grouping (a series shows one flat episode
-   row), no next-episode autoplay, no `::cue` subtitle styling, 120-item pages
-   with auto-load, no unit tests, no linting.
+7. **Gaps:** no audio-track choice (the webOS `<video>` reports one audio
+   track; unconfirmed whether that is a platform limit), no subtitle picker
+   (OK cycles tracks), no genre filter, no profile switching, the grid keeps
+   every loaded card in the DOM, no `::cue` styling, no unit tests, no linting.
+   The 0.8.0 layouts (chips, season tabs) were checked via DevTools only, never
+   by eye.
 
 ## 6. Reviewer's guide — what I would scrutinise
 
