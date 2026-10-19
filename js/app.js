@@ -9,7 +9,7 @@
 
   var api = new window.SiloApi();
   var $ = function (id) { return document.getElementById(id); };
-  var APP_VERSION = '0.9.1';
+  var APP_VERSION = '0.9.2';
 
   var state = {
     screen: 'connect',
@@ -376,6 +376,8 @@
 
   async function enterHome() {
     sessionExpired = false;
+    state.addingProfile = null;
+    rememberProfile();
     show('home');
     try { localStorage.removeItem('silo.signedOut'); } catch (e) { /* ignore */ }
     $('home-user').textContent = api.userName ? ('Signed in as ' + api.userName) : '';
@@ -1656,21 +1658,98 @@
   /* ============================ settings screen ============================ */
 
   function signOutNow() {
+    var gone = api.userId;
     api.signOut();
+    forgetProfile(gone);
+    var rest = loadProfiles();
+    if (rest.length) { useProfile(rest[0]); return; }
     try { localStorage.setItem('silo.signedOut', '1'); } catch (e) { /* ignore */ }
-    state.rows = [];
-    state.serverInfo = null;
+    resetForProfile();
     show('connect');
     connectSetFocus(0);
+  }
+
+  /* ============================ profiles ============================ */
+
+  // Each Silo profile is its own sign-in (Quick Connect asks which profile to
+  // approve), so every session is kept and switching just swaps tokens.
+  var PROFILES_KEY = 'silo.profiles';
+
+  function loadProfiles() {
+    try { return JSON.parse(localStorage.getItem(PROFILES_KEY)) || []; } catch (e) { return []; }
+  }
+
+  function saveProfiles(list) {
+    try { localStorage.setItem(PROFILES_KEY, JSON.stringify(list)); } catch (e) { /* ignore */ }
+  }
+
+  function currentProfile() {
+    return { server: api.base, token: api.token, userId: api.userId, userName: api.userName };
+  }
+
+  function rememberProfile() {
+    if (!api.token || !api.userId) return;
+    var list = loadProfiles().filter(function (p) { return p.userId !== api.userId; });
+    list.unshift(currentProfile());
+    saveProfiles(list);
+  }
+
+  function forgetProfile(userId) {
+    saveProfiles(loadProfiles().filter(function (p) { return p.userId !== userId; }));
+  }
+
+  function profileName(p) {
+    var name = (p && p.userName) || 'Profile';
+    var hash = name.indexOf('#');
+    return hash >= 0 ? name.slice(hash + 1) : name;
+  }
+
+  function resetForProfile() {
+    state.rows = [];
+    state.serverInfo = null;
+    state.detailItem = null;
+    state.gridView = null;
+  }
+
+  function useProfile(p) {
+    api.setServer(p.server);
+    api.token = p.token;
+    api.userId = p.userId;
+    api.userName = p.userName;
+    api.persist();
+    resetForProfile();
+    enterHome();
+  }
+
+  function chooseProfile() {
+    var list = loadProfiles();
+    var names = list.map(function (p) {
+      return profileName(p) + (p.userId === api.userId ? '  (current)' : '');
+    });
+    names.push('Add another profile…');
+    var at = list.findIndex(function (p) { return p.userId === api.userId; });
+    openPicker('Profiles', names, at, function (i) {
+      if (i === list.length) { addProfile(); return; }
+      if (list[i].userId !== api.userId) useProfile(list[i]);
+    });
+  }
+
+  function addProfile() {
+    state.addingProfile = currentProfile();
+    api.signOut();
+    resetForProfile();
+    show('connect');
+    switchTab('quick');
+    error('Approve the code for the other profile. Back returns to ' + profileName(state.addingProfile) + '.');
   }
 
   function settingEntries() {
     var info = state.serverInfo || {};
     return [
       { type: 'header', label: 'Account' },
-      { type: 'info', label: 'Profile', value: api.userName || '—' },
+      { type: 'action', label: 'Profile', value: profileName(currentProfile()) + ' — OK to switch or add', run: chooseProfile },
       { type: 'info', label: 'Server', value: (info.ServerName || 'Silo') + (info.Version ? '  ·  ' + info.Version : '') },
-      { type: 'action', label: 'Sign out', run: signOutNow },
+      { type: 'action', label: 'Sign out of this profile', run: signOutNow },
       { type: 'header', label: 'Home screen' },
       { type: 'toggle', label: 'Continue watching', key: 'showResume' },
       { type: 'choice', label: 'Recently added rows', key: 'latestRows', options: [2, 4, 6], fmt: function (v) { return v + ' libraries'; } },
@@ -1954,6 +2033,16 @@
       case 'home':
         exitApp();
         return;
+      case 'connect':
+        if (state.addingProfile) {
+          var back = state.addingProfile;
+          state.addingProfile = null;
+          error('');
+          useProfile(back);
+          return;
+        }
+        exitApp();
+        return;
       default:
         exitApp();
     }
@@ -2062,9 +2151,11 @@
   });
 
   var sessionExpired = false;
+  var booting = true;
   api.onUnauthorized = function () {
-    if (sessionExpired || !api.token) return;
+    if (booting || sessionExpired || !api.token) return;
     sessionExpired = true;
+    forgetProfile(api.userId);
     cancelPendingNext();
     stopPlayback(null);
     api.signOut();
@@ -2096,32 +2187,63 @@
 
   (async function boot() {
     loadSettings();
-    // A session seeded into js/seed.js wins: no sign-in on the TV needed.
+    // A session seeded into js/seed.js is applied once per token, so a new
+    // seed still wins but a profile switched to afterwards survives restarts.
     var seed = window.SILO_SEED;
-    var signedOut = false;
-    try { signedOut = !!localStorage.getItem('silo.signedOut'); } catch (e) { /* ignore */ }
-    if (seed && seed.server && seed.token && !signedOut) {
+    var signedOut = false, seedSeen = '';
+    try {
+      signedOut = !!localStorage.getItem('silo.signedOut');
+      seedSeen = localStorage.getItem('silo.seedApplied') || '';
+    } catch (e) { /* ignore */ }
+    if (seed && seed.server && seed.token && !signedOut && seedSeen !== seed.token) {
       api.setServer(seed.server);
       api.token = seed.token;
       api.userId = seed.userId || '';
       api.userName = seed.userName || '';
       api.persist();
+      try { localStorage.setItem('silo.seedApplied', seed.token); } catch (e) { /* ignore */ }
     }
 
     var savedServer = '';
     try { savedServer = localStorage.getItem('silo.server') || ''; } catch (e) { /* ignore */ }
     $('server-url').value = savedServer || window.SILO_DEFAULT_SERVER || '';
 
-    if (api.load()) {
-      // Validate the saved session before skipping sign-in
-      try {
-        await api.views();
-        enterHome();
-        return;
-      } catch (e) {
-        api.signOut();
+    // Validate the saved session, then any other saved profile, before
+    // falling back to sign-in.
+    var candidates = api.load() ? [currentProfile()] : [];
+    loadProfiles().forEach(function (p) {
+      if (!candidates.some(function (c) { return c.userId === p.userId; })) candidates.push(p);
+    });
+    var unreachable = false;
+    for (var i = 0; i < candidates.length; i++) {
+      var p = candidates[i];
+      api.setServer(p.server);
+      api.token = p.token;
+      api.userId = p.userId;
+      api.userName = p.userName;
+      for (var attempt = 0; attempt < 3; attempt++) {
+        try {
+          await api.views();
+          api.persist();
+          booting = false;
+          enterHome();
+          return;
+        } catch (e) {
+          if (e.status === 401) { forgetProfile(p.userId); break; }
+          unreachable = true;
+          await new Promise(function (r) { setTimeout(r, 3000); });
+        }
       }
+      if (unreachable) break;
     }
+    booting = false;
+    if (unreachable) {
+      show('connect');
+      connectSetFocus(0);
+      error('Could not reach the server. Your sign-in is kept; reopen the app to retry.');
+      return;
+    }
+    api.signOut();
     show('connect');
     connectSetFocus(0);
   })();

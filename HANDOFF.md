@@ -4,10 +4,10 @@ Unofficial TV client for [Silo](https://siloserver.org/), a self-hosted media
 server. Built for one rooted LG C2 and installed on it. This document is for
 someone reviewing the code cold.
 
-**Status:** v0.9.1, installed on the TV and in use. Sign-in, browsing (with
+**Status:** v0.9.2, installed on the TV and in use. Sign-in, browsing (with
 sort, filter and A–Z jump), series with seasons and Next Up, search, settings,
 playback, resume and progress reporting all work, verified by
-`tools/smoke_test.py` (27/27). Embedded text subtitles in MKV files now appear
+`tools/smoke_test.py` (30/30). Embedded text subtitles in MKV files now appear
 within seconds, read straight from the file (see "Subtitles" in section 3).
 
 **Read section 6 first if you are reviewing this.**
@@ -114,6 +114,15 @@ below the fold were unreachable).
   with TrueHD first, the TV lists 5). Names come from the server only when
   the counts match; otherwise "EN 1", "EN 2"… Switching was confirmed via
   DevTools (enabled flag moves, playback continues), not by ear.
+- **Profiles (0.9.2):** each Silo profile is a separate sign-in (Quick
+  Connect asks which profile to approve; password sign-in uses
+  `user#Profile`). Every session is kept in `localStorage['silo.profiles']`;
+  Settings → Profile switches or adds one, and Back from the add screen
+  returns to the previous profile. `seed.js` is applied once per token
+  (`silo.seedApplied`), so a switched profile survives restarts. Boot tries
+  the current, then other saved profiles; it forgets a profile only on 401,
+  and keeps sign-ins when the server is unreachable. Switching with a second
+  real profile is untested (only one profile was signed in).
 - **Grid memory:** posters more than 240 cards from the cursor are unloaded
   and reloaded on return.
 - **Recovery:** "Buffering…" status; a mid-film error reconnects at the last
@@ -177,7 +186,7 @@ running on the TV from a Mac:
 
 ```sh
 ssh -f -N -L 9998:127.0.0.1:9998 c2tv     # tunnel the TV's devtools port
-python3 tools/smoke_test.py               # 27 checks
+python3 tools/smoke_test.py               # 30 checks
 ```
 
 It uses two mechanisms:
@@ -239,7 +248,7 @@ Review order I would suggest: `build.py` (5 min, tells you nothing is hidden),
 6. **Version picker is client-side only.** The chosen source is passed via
    `MediaSourceId` on the stream URL, not requested in the `PlaybackInfo` POST.
    Session reporting may therefore not reflect the chosen version.
-7. **Gaps:** no profile switching, image (PGS) subtitles, no `::cue`
+7. **Gaps:** image (PGS) subtitles, no `::cue`
    styling, the grid keeps every loaded card node (images are trimmed), no
    unit tests, no linting. The 0.8–0.9 layouts (chips, season tabs, picker)
    were checked via DevTools only, never by eye.
