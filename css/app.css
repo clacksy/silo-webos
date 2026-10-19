@@ -388,3 +388,10 @@ button.primary.focused { background: #3a4a63; border-color: var(--accent); }
 .picker-row.selected { color: var(--fg); }
 .picker-row.selected::after { content: '  ✓'; color: var(--accent); }
 .picker-row.focused { background: #26303f; color: var(--fg); border-color: var(--accent); }
+
+/* ---------- SKIP INTRO ---------- */
+.skip-btn {
+  position: absolute; right: 80px; bottom: 210px; z-index: 5;
+  padding: 16px 34px; font-size: 24px; color: var(--fg);
+  background: rgba(20, 26, 34, .88); border: 2px solid var(--accent); border-radius: 999px;
+}

@@ -9,7 +9,7 @@
 
   var api = new window.SiloApi();
   var $ = function (id) { return document.getElementById(id); };
-  var APP_VERSION = '0.9.2';
+  var APP_VERSION = '0.10.0';
 
   var state = {
     screen: 'connect',
@@ -57,7 +57,10 @@
   /* ============================ settings state ============================ */
 
   var SETTINGS_KEY = 'silo.settings';
-  var settings = { showResume: true, latestRows: 4, seekStep: 10, autoplayNext: true, subLang: '', subForced: false, audioLang: '' };
+  var settings = {
+    showResume: true, latestRows: 4, seekStep: 10, autoplayNext: true,
+    subLang: '', subForced: false, audioLang: '', subSize: 50, subStyle: 'Shadow'
+  };
 
   function loadSettings() {
     try {
@@ -69,6 +72,23 @@
         });
       }
     } catch (e) { /* defaults are fine */ }
+  }
+
+  var SUB_SIZES = { 36: 'Small', 50: 'Medium', 64: 'Large', 80: 'Extra large' };
+
+  function applySubtitleStyle() {
+    var tag = $('cue-style');
+    if (!tag) {
+      tag = document.createElement('style');
+      tag.id = 'cue-style';
+      document.head.appendChild(tag);
+    }
+    var box = settings.subStyle === 'Box';
+    tag.textContent = 'video::cue {' +
+      'font-size:' + (Number(settings.subSize) || 50) + 'px;' +
+      'color:#fff;line-height:1.3;' +
+      'background:' + (box ? 'rgba(0,0,0,.72)' : 'transparent') + ';' +
+      'text-shadow:' + (box ? 'none' : '0 0 4px #000,0 2px 3px #000,0 0 10px rgba(0,0,0,.8)') + ';}';
   }
 
   function saveSettings() {
@@ -391,57 +411,36 @@
     status.textContent = 'Loading your library…';
     rowsEl.appendChild(status);
 
+    var seq = state.homeSeq = (state.homeSeq || 0) + 1;
     var views = [];
     try { views = await api.views(); } catch (e) { /* handled below */ }
+    if (seq !== state.homeSeq) return;
 
-    rowsEl.removeChild(status);
+    if (!views.length && !api.token) { rowsEl.removeChild(status); show('connect'); return; }
 
-    if (!views.length && !api.token) { show('connect'); return; }
-
-    // Server identity, used by the settings screen
-    if (!state.serverInfo) {
-      try { state.serverInfo = await api.publicInfo(); } catch (e) { /* optional */ }
-    }
-
-    // Continue watching (respects the setting)
-    if (settings.showResume) {
-      try {
-        var resume = await api.resumeItems(14);
-        if (resume.length) {
-          state.rows.push(addRow('Continue watching', resume.map(function (i) {
-            return makeCard(i, { wide: true });
-          })));
-        }
-      } catch (e) { /* no resume row */ }
-    }
-
-    try {
-      var nextUp = await api.nextUp({ limit: 16 });
-      if (nextUp.length) {
-        state.rows.push(addRow('Next up', nextUp.map(function (i) { return makeCard(i, { wide: true }); })));
-      }
-    } catch (e) { /* no next-up row */ }
-
-    try {
-      var favs = await api.favorites(16);
-      if (favs.length) {
-        state.rows.push(addRow('Favourites', favs.map(function (i) { return makeCard(i, {}); })));
-      }
-    } catch (e) { /* no favourites row */ }
-
-    // Recent per library (how many is a setting)
+    // Every row at once: same requests as before, a fraction of the wait.
+    var none = function () { return []; };
     var maxRows = Number(settings.latestRows) || 4;
-    for (var i = 0; i < views.length && i < maxRows; i++) {
-      var v = views[i];
-      try {
-        var latest = await api.latestItems(v.Id, 16);
-        if (latest.length) {
-          state.rows.push(addRow('Recently added · ' + v.Name, latest.map(function (it) {
-            return makeCard(it, {});
-          })));
-        }
-      } catch (e) { /* skip this library */ }
-    }
+    var shown = views.slice(0, maxRows);
+    var results = await Promise.all([
+      settings.showResume ? api.resumeItems(14).catch(none) : Promise.resolve([]),
+      api.nextUp({ limit: 16 }).catch(none),
+      api.favorites(16).catch(none),
+      Promise.all(shown.map(function (v) { return api.latestItems(v.Id, 16).catch(none); })),
+      state.serverInfo ? Promise.resolve(state.serverInfo) : api.publicInfo().catch(function () { return null; })
+    ]);
+    if (seq !== state.homeSeq || state.screen !== 'home') return;
+    rowsEl.removeChild(status);
+    state.serverInfo = results[4];
+
+    var wide = function (i) { return makeCard(i, { wide: true }); };
+    var tall = function (i) { return makeCard(i, {}); };
+    if (results[0].length) state.rows.push(addRow('Continue watching', results[0].map(wide)));
+    if (results[1].length) state.rows.push(addRow('Next up', results[1].map(wide)));
+    if (results[2].length) state.rows.push(addRow('Favourites', results[2].map(tall)));
+    shown.forEach(function (v, k) {
+      if (results[3][k].length) state.rows.push(addRow('Recently added · ' + v.Name, results[3][k].map(tall)));
+    });
 
     // Libraries
     if (views.length) {
@@ -1431,8 +1430,11 @@
       hlsTried: false,
       onMeta: null,
       lastGood: 0,
-      retries: 0
+      retries: 0,
+      segments: [],
+      skipped: {}
     };
+    api.mediaSegments(item.Id).then(function (list) { session.segments = list; }, function () { /* none */ });
     state.player = session;
     state.playerFocus = 0;
 
@@ -1545,6 +1547,7 @@
 
     video.ontimeupdate = function () {
       if (video.currentTime > 0) session.lastGood = video.currentTime;
+      updateSkip(session);
       playerTick();
     };
     video.onpause = playerTick;
@@ -1581,10 +1584,47 @@
     }
     clearTimeout(seek.timer);
     seek.target = null;
+    $('skip-btn').classList.add('hidden');
     video.pause();
     video.removeAttribute('src');
     video.load();
     if (returnTo) show(returnTo);
+  }
+
+  /* ---------------- skip intro / credits ---------------- */
+
+  var SKIP_LABELS = { Intro: 'Skip intro', Recap: 'Skip recap', Preview: 'Skip preview', Outro: 'Skip credits' };
+
+  // The segment being offered, if playback is inside one that hasn't been
+  // skipped. OK (with the controls hidden) takes it.
+  function updateSkip(session) {
+    var t = $('video').currentTime;
+    var offer = null;
+    session.segments.forEach(function (seg, i) {
+      var start = seg.StartTicks / 1e7, end = seg.EndTicks / 1e7;
+      if (SKIP_LABELS[seg.Type] && !session.skipped[i] && t >= start && t < end - 1) offer = { index: i, seg: seg };
+    });
+    session.offer = offer;
+    var btn = $('skip-btn');
+    if (!offer) { btn.classList.add('hidden'); return; }
+    var outroNext = offer.seg.Type === 'Outro' && session.item.Type === 'Episode' && settings.autoplayNext;
+    btn.textContent = (outroNext ? 'Next episode' : SKIP_LABELS[offer.seg.Type]) + '  ·  OK';
+    btn.classList.remove('hidden');
+  }
+
+  function takeSkip() {
+    var s = state.player;
+    if (!s || !s.offer) return false;
+    var offer = s.offer;
+    s.skipped[offer.index] = true;
+    s.offer = null;
+    $('skip-btn').classList.add('hidden');
+    if (offer.seg.Type === 'Outro' && s.item.Type === 'Episode' && settings.autoplayNext) {
+      playNextAfter(s);
+    } else {
+      $('video').currentTime = offer.seg.EndTicks / 1e7;
+    }
+    return true;
   }
 
   /* ---------------- next episode ---------------- */
@@ -1649,6 +1689,7 @@
       return true;
     }
 
+    if (code === 13 && takeSkip()) return true;
     if (code === 13 || code === 415 || code === 19) { togglePlay(); return true; }
     if (code === 39 || code === 417) { skipBy(1); return true; }
     if (code === 37 || code === 412) { skipBy(-1); return true; }
@@ -1756,6 +1797,8 @@
       { type: 'header', label: 'Playback' },
       { type: 'choice', label: 'Seek step', key: 'seekStep', options: [10, 30, 60], fmt: function (v) { return v + ' seconds'; } },
       { type: 'toggle', label: 'Play next episode automatically', key: 'autoplayNext' },
+      { type: 'choice', label: 'Subtitle size', key: 'subSize', options: [36, 50, 64, 80], fmt: function (v) { return SUB_SIZES[v] || (v + 'px'); } },
+      { type: 'choice', label: 'Subtitle style', key: 'subStyle', options: ['Shadow', 'Box'] },
       {
         type: 'action',
         label: 'Subtitles turn on automatically',
@@ -1845,6 +1888,7 @@
       settings[e.key] = e.options[idx];
     }
     saveSettings();
+    if (e.key === 'subSize' || e.key === 'subStyle') applySubtitleStyle();
     row.valueEl.textContent = settingDisplay(e);
   }
 
@@ -2187,6 +2231,7 @@
 
   (async function boot() {
     loadSettings();
+    applySubtitleStyle();
     // A session seeded into js/seed.js is applied once per token, so a new
     // seed still wins but a profile switched to afterwards survives restarts.
     var seed = window.SILO_SEED;

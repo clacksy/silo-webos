@@ -10,7 +10,7 @@
 
   var CLIENT = 'Silo webOS';
   var DEVICE = 'LG webOS TV';
-  var VERSION = '0.9.2';
+  var VERSION = '0.10.0';
   var TICKS = 10000000; // .NET ticks per second
 
   var LS = {
@@ -115,8 +115,36 @@
     return h;
   };
 
+  // The server rate-limits. A 429 starts a shared cooldown (Retry-After, else
+  // 5 s, at most 60 s) that every request waits out — including the subtitle
+  // reader's range requests — and a GET is retried once after it.
+  Api.coolUntil = 0;
+
+  Api.cooldown = function () {
+    var wait = Api.coolUntil - Date.now();
+    return wait > 0 ? new Promise(function (r) { setTimeout(r, wait); }) : Promise.resolve();
+  };
+
+  Api.backOff = function (retryAfter) {
+    var secs = parseInt(retryAfter, 10);
+    if (!(secs > 0)) secs = 5;
+    Api.coolUntil = Math.max(Api.coolUntil, Date.now() + Math.min(secs, 60) * 1000);
+  };
+
   Api.prototype.request = function (path, opts) {
+    var self = this;
     opts = opts || {};
+    return Api.cooldown().then(function () {
+      return self._send(path, opts);
+    }).catch(function (e) {
+      if (e && e.status === 429 && (opts.method || 'GET') === 'GET' && !opts.retried) {
+        return self.request(path, Object.assign({}, opts, { retried: true }));
+      }
+      throw e;
+    });
+  };
+
+  Api.prototype._send = function (path, opts) {
     var self = this;
     if (!this.base) return Promise.reject(new Error('No server address set'));
 
@@ -141,8 +169,9 @@
           var msg = '';
           try { var j = JSON.parse(text); msg = j.message || j.error || j.title || ''; } catch (e) { /* not json */ }
           if (!msg) msg = text ? text.slice(0, 180) : (res.status + ' ' + res.statusText);
-          var err = new Error(msg);
+          var err = new Error(res.status === 429 ? 'The server is busy — try again in a moment' : msg);
           err.status = res.status;
+          if (res.status === 429) Api.backOff(res.headers.get('Retry-After'));
           if (res.status === 401 && self.onUnauthorized) self.onUnauthorized();
           throw err;
         });
@@ -289,6 +318,10 @@
     }).then(function (r) { return (r && r.Items) || []; });
   };
 
+  Api.prototype.mediaSegments = function (itemId) {
+    return this.request('/MediaSegments/' + itemId).then(function (r) { return (r && r.Items) || []; });
+  };
+
   Api.prototype.genres = function (parentId) {
     return this.request('/Genres', {
       query: { ParentId: parentId, UserId: this.userId, SortBy: 'SortName', SortOrder: 'Ascending' }
@@ -388,6 +421,7 @@
     return fetch(url, { headers: headers, signal: controller ? controller.signal : undefined })
       .then(function (r) {
         if (timer) clearTimeout(timer);
+        if (r.status === 429) Api.backOff(r.headers.get('Retry-After'));
         if (!r.ok) throw new Error('Subtitle request failed (' + r.status + ')');
         return r.text();
       }, function (e) {

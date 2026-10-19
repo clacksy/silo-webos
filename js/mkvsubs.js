@@ -29,13 +29,28 @@
   /* ---------------- byte access ---------------- */
 
   // Never let a server that ignores Range stream a whole 20 GB file at us.
+  // Waits out the API's shared 429 cooldown, and starts one on a 429.
   function range(url, start, length) {
+    var Api = global.SiloApi;
+    return (Api && Api.cooldown ? Api.cooldown() : Promise.resolve()).then(function () {
+      return rangeNow(url, start, length);
+    });
+  }
+
+  function rangeNow(url, start, length) {
     var controller = new AbortController();
     var timer = setTimeout(function () { controller.abort(); }, 20000);
     return fetch(url, {
       headers: { Range: 'bytes=' + start + '-' + (start + length - 1) },
       signal: controller.signal
     }).then(function (res) {
+      if (res.status === 429) {
+        controller.abort();
+        if (global.SiloApi && global.SiloApi.backOff) global.SiloApi.backOff(res.headers.get('Retry-After'));
+        var busy = new Error('rate limited');
+        busy.status = 429;
+        throw busy;
+      }
       if (res.status !== 206) {
         controller.abort();
         throw new Error('range request refused (' + res.status + ')');
@@ -274,9 +289,9 @@
         state[i] = 2;
         failures = 0;
         if (block) add(i, block);
-      }, function () {
+      }, function (err) {
         state[i] = 0;
-        failures++;
+        if (!err || err.status !== 429) failures++;
       }).then(function () {
         busy--;
         pump();

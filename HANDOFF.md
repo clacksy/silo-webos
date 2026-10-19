@@ -4,7 +4,7 @@ Unofficial TV client for [Silo](https://siloserver.org/), a self-hosted media
 server. Built for one rooted LG C2 and installed on it. This document is for
 someone reviewing the code cold.
 
-**Status:** v0.9.2, installed on the TV and in use. Sign-in, browsing (with
+**Status:** v0.10.0, installed on the TV and in use. Sign-in, browsing (with
 sort, filter and A–Z jump), series with seasons and Next Up, search, settings,
 playback, resume and progress reporting all work, verified by
 `tools/smoke_test.py` (30/30). Embedded text subtitles in MKV files now appear
@@ -123,6 +123,19 @@ below the fold were unreachable).
   the current, then other saved profiles; it forgets a profile only on 401,
   and keeps sign-ins when the server is unreachable. Switching with a second
   real profile is untested (only one profile was signed in).
+- **Rate limits (0.10):** a 429 starts a shared cooldown (`SiloApi.coolUntil`,
+  from `Retry-After`, else 5 s, max 60 s). Every API call and every
+  `mkvsubs.js` range request waits it out; GETs retry once; a 429 does not
+  count as a subtitle-line failure. Tested offline with a fake server, never
+  against a real 429.
+- **Home** loads its rows in parallel (all 8 rows in ~340 ms on the TV).
+- **Subtitle style:** Settings → size (36/50/64/80 px) and Shadow/Box, via a
+  generated `video::cue` rule. Not yet seen on screen.
+- **Skip intro / credits:** `/MediaSegments/{id}` (Silo supports it: Intro,
+  and presumably Recap/Preview/Outro). Inside a segment a "Skip intro · OK"
+  button shows; OK jumps to its end, or for an episode's Outro with autoplay
+  on, goes to the next episode. One request per play. Verified on the TV for
+  an Intro (0:11 → 0:30).
 - **Grid memory:** posters more than 240 cards from the cursor are unloaded
   and reloaded on return.
 - **Recovery:** "Buffering…" status; a mid-film error reconnects at the last
