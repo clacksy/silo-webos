@@ -9,7 +9,7 @@
 
   var api = new window.SiloApi();
   var $ = function (id) { return document.getElementById(id); };
-  var APP_VERSION = '0.5.0';
+  var APP_VERSION = '0.6.0';
 
   var state = {
     screen: 'connect',
@@ -850,9 +850,10 @@
   // Warm the cache in the background so turning subtitles on is instant when
   // the server takes a minute to extract them.
   async function prefetchSubtitles(session) {
+    // One track only: extraction is ~150s each, so warming three is pointless
     var ordered = session.subs.slice().sort(function (a, b) {
       return (b.IsDefault ? 1 : 0) - (a.IsDefault ? 1 : 0);
-    }).slice(0, 3);
+    }).slice(0, 1);
     for (var i = 0; i < ordered.length; i++) {
       if (state.player !== session) return;
       try { await subtitleTextFor(session, ordered[i]); } catch (e) { /* retried on demand */ }

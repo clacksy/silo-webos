@@ -4,9 +4,12 @@ Unofficial TV client for [Silo](https://siloserver.org/), a self-hosted media
 server. Built for one rooted LG C2 and installed on it. This document is for
 someone reviewing the code cold.
 
-**Status:** v0.5.0, installed and in daily use. Sign-in, browsing, search,
-settings, playback, resume and progress reporting all work. Subtitles work but
-are crippled by server-side extraction latency (see Issues #1).
+**Status:** v0.6.0, installed on the TV and in use. Sign-in, browsing, search,
+settings, playback, resume and progress reporting all work, verified by
+`tools/smoke_test.py` (9/9). Subtitles work but are crippled by server-side
+extraction latency (see Issues #1).
+
+**Read section 6 first if you are reviewing this.**
 
 ---
 
@@ -141,6 +144,16 @@ openSearch, live search results, and both tiles reached with real key presses.
 Known blind spots: playback control (needs content and a person watching),
 subtitle rendering (same), and anything visual — there is no screenshot path.
 
+## 3b. Where to start reading
+
+`js/app.js` is one IIFE, ~1,400 lines, in this order: helpers → rows → home →
+library grid → detail → player → settings → search → back handling → keyboard
+dispatch → wiring → diagnostics hook → boot. `js/api.js` is a thin
+Jellyfin-compatible client. `build.py` is the whole "build".
+
+Review order I would suggest: `build.py` (5 min, tells you nothing is hidden),
+`js/api.js` (30 min, the contract), then `js/app.js`.
+
 ## 4. Known issues
 
 1. **Subtitle extraction is pathologically slow (server-side).**
@@ -168,6 +181,39 @@ subtitle rendering (same), and anything visual — there is no screenshot path.
 7. **Gaps:** no watchlist, no season grouping (a series shows one flat episode
    row), no next-episode autoplay, no `::cue` subtitle styling, 120-item pages
    with auto-load, no tests, no linting.
+
+## 6. Reviewer's guide — what I would scrutinise
+
+1. **Navigation architecture.** Three near-duplicate implementations (row nav,
+   grid nav, settings nav), each with its own index state and its own
+   left/right/up/down rules. It works and is tested, but it is the thing most
+   likely to break when seasons and a watchlist get added. Restructure?
+2. **Subtitle workaround.** `fetch()` → `Blob` → `blob:` URL. Is the blob URL
+   revoked correctly (currently on track clear)? Should `crossOrigin` be set at
+   all once we use blobs? Is there a supported webOS path I have missed?
+3. **Error handling.** There are many `catch (e) {}` with a comment. They keep
+   the UI alive, but they also hid the subtitle failure for a while. Which of
+   these should surface to the user?
+4. **Seeded session.** `js/seed.js` holds a token so the TV skips sign-in. Is
+   that acceptable for a personal TV device, or should the app always use
+   Quick Connect and drop the seed entirely?
+5. **Version selection.** The chosen `MediaSource` is passed as
+   `MediaSourceId` on the stream URL, not in the `PlaybackInfo` POST, so session
+   reporting may not reflect it.
+6. **Playback robustness.** Direct play only; the HLS fallback has never been
+   exercised because this server reports `SupportsTranscoding: false`.
+
+### Honest confidence levels
+
+- **Tested and working:** sign-in, browse, search, settings, grid paging,
+  detail, watched/favourite, resume reporting. Covered by the smoke test.
+- **Written but never observed working:** subtitle rendering (network path
+  proven, pixels never seen), HLS fallback, playing an episode from a series.
+- **Never verified at all:** HDR/Dolby Vision actually reaching the panel,
+  audio passthrough, behaviour on any TV other than this one.
+
+Everything visual is unverified. There is no screenshot path from the TV; all
+confirmation came from `document.title` telemetry and the DevTools protocol.
 
 ## 5. Questions worth a second opinion
 
