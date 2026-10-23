@@ -9,7 +9,7 @@
 
   var api = new window.SiloApi();
   var $ = function (id) { return document.getElementById(id); };
-  var APP_VERSION = '0.10.1';
+  var APP_VERSION = '0.10.2';
 
   var state = {
     screen: 'connect',
@@ -1376,6 +1376,22 @@
     return 0;
   }
 
+  // Report which audio the viewer is actually hearing. The player switches
+  // tracks locally, so without this the server session always claims the
+  // file's default track.
+  function serverAudioIndex(session) {
+    if (!session) return undefined;
+    var list = Array.prototype.slice.call($('video').audioTracks || []);
+    var server = session.audio || [];
+    if (!server.length) return undefined;
+    if (list.length === server.length) {
+      var enabled = enabledAudio();
+      if (server[enabled] && server[enabled].Index !== undefined) return server[enabled].Index;
+    }
+    if (session.audioSwitched !== undefined) return session.audioSwitched;
+    return server[0].Index;
+  }
+
   function chooseAudio() {
     var s = state.player;
     var tracks = $('video').audioTracks;
@@ -1384,6 +1400,7 @@
     openPicker('Audio', names, enabledAudio(), function (i) {
       if (state.player !== s) return;
       enableAudio(i);
+      if (s.audio && s.audio[i]) s.audioSwitched = s.audio[i].Index;
       settings.audioLang = tracks[i].language || '';
       saveSettings();
       $('pc-audio').textContent = 'Audio: ' + names[i];
@@ -1542,6 +1559,7 @@
           IsPaused: false,
           IsMuted: video.muted,
           VolumeLevel: Math.round(video.volume * 100),
+          AudioStreamIndex: serverAudioIndex(session),
           PlayMethod: 'DirectPlay'
         });
       }
@@ -1556,6 +1574,7 @@
           PositionTicks: api.toTicks(video.currentTime),
           IsMuted: video.muted,
           VolumeLevel: Math.round(video.volume * 100),
+          AudioStreamIndex: serverAudioIndex(session),
           PlayMethod: 'DirectPlay'
         });
       }, 10000);
