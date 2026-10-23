@@ -60,22 +60,31 @@ def ar_archive(members):
     return out.getvalue()
 
 
+INCLUDE_FILES = ("appinfo.json", "index.html")
+INCLUDE_DIRS = ("css", "js", "icons")
+
+
 def collect_payload():
+    """Only app files belong in the package.
+
+    Without this allowlist, docs, screenshots, the licence and the store
+    listing would all be shipped inside the IPK.
+    """
     members = []
-    base = os.path.join(ROOT, "")
-    for dirpath, dirnames, filenames in os.walk(ROOT):
-        dirnames[:] = sorted(d for d in dirnames if d not in SKIP_DIRS)
-        for name in sorted(filenames):
-            if name in SKIP_NAMES or name.startswith("."):
-                continue
-            full = os.path.join(dirpath, name)
-            rel = os.path.relpath(full, ROOT).replace(os.sep, "/")
-            with open(full, "rb") as fh:
-                data = fh.read()
-            mode = 0o755 if os.access(full, os.X_OK) and not rel.endswith(
-                (".html", ".css", ".js", ".json", ".png", ".md")
-            ) else 0o644
-            members.append(("usr/palm/applications/%s/%s" % (APP_ID, rel), data, mode))
+    paths = [os.path.join(ROOT, name) for name in INCLUDE_FILES]
+    for d in INCLUDE_DIRS:
+        for dirpath, _dirnames, filenames in os.walk(os.path.join(ROOT, d)):
+            for name in sorted(filenames):
+                paths.append(os.path.join(dirpath, name))
+
+    for full in sorted(paths):
+        if not os.path.isfile(full) or os.path.basename(full) in SKIP_NAMES:
+            continue
+        rel = os.path.relpath(full, ROOT).replace(os.sep, "/")
+        with open(full, "rb") as fh:
+            data = fh.read()
+        mode = 0o644
+        members.append(("usr/palm/applications/%s/%s" % (APP_ID, rel), data, mode))
     return members
 
 
