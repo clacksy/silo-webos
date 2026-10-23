@@ -1,0 +1,39 @@
+{
+  "paging": {
+    "page": 1,
+    "count": 1,
+    "maxPage": 1,
+    "itemsTotal": 1,
+    "prevUrl": null,
+    "nextUrl": null
+  },
+  "packages": [
+    {
+      "id": "io.github.clacksy.silotv",
+      "title": "Silo TV",
+      "iconUri": "https://raw.githubusercontent.com/clacksy/silo-webos/main/icons/icon400.png",
+      "manifestUrl": "https://github.com/clacksy/silo-webos/releases/latest/download/io.github.clacksy.silotv.manifest.json",
+      "manifest": {
+        "id": "io.github.clacksy.silotv",
+        "version": "0.10.2",
+        "type": "web",
+        "title": "Silo TV",
+        "appDescription": "Unofficial LG webOS client for the Silo media server",
+        "iconUri": "https://github.com/clacksy/silo-webos/raw/main/icons/icon400.png",
+        "sourceUrl": "https://github.com/clacksy/silo-webos",
+        "rootRequired": false,
+        "ipkUrl": "https://github.com/clacksy/silo-webos/releases/download/v0.10.2/silo-webos-0.10.2.ipk",
+        "ipkSize": 52994,
+        "ipkHash": {
+          "sha256": "6b4b799324fedb24b1ac91d3aea1768a6431b17cc99a30b29121eb27fa2db2a5"
+        }
+      },
+      "pool": "main",
+      "requirements": {
+        "webosRelease": ">=4.0"
+      },
+      "shortDescription": "Unofficial LG webOS client for the Silo media server. Browse, search and play your library on the TV, with Quick Connect sign-in, seasons and Next up, subtitles read from the file, audio track selection and resume synced with Silo.",
+      "fullDescriptionUrl": "https://raw.githubusercontent.com/clacksy/silo-webos/main/repo/full_description.html"
+    }
+  ]
+}

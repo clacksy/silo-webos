@@ -38,6 +38,20 @@ Not affiliated with, endorsed by, or supported by Silo Media L.L.C.
   [Jellyfin-compatible apps](https://siloserver.org/docs/jellyfin-apps); the
   address is often different from the web UI's).
 
+
+## Add this repository to Homebrew Channel
+
+The app is not listed in the central repository. You can add this project as a
+repository instead:
+
+```
+https://raw.githubusercontent.com/clacksy/silo-webos/main/repo/apps.json
+```
+
+In Homebrew Channel: **Settings → Add repository**, paste that URL, then open the
+app list and install *Silo TV*. Updates arrive the same way as any other package,
+because the repository points at `releases/latest`.
+
 ## Install
 
 Download the `.ipk` from
