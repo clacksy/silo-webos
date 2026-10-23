@@ -43,7 +43,7 @@ Via Homebrew Channel (copy the `.ipk` to the TV), or over SSH:
 ```sh
 scp silo-webos.ipk root@<tv-ip>:/tmp/
 ssh root@<tv-ip> "luna-send-pub -i 'luna://com.webos.appInstallService/dev/install' \
-  '{\"id\":\"org.silo.webos\",\"ipkUrl\":\"/tmp/silo-webos.ipk\",\"subscribe\":true}'"
+  '{\"id\":\"io.github.clacksy.silotv\",\"ipkUrl\":\"/tmp/silo-webos.ipk\",\"subscribe\":true}'"
 ```
 
 ## Remote keys

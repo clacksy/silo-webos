@@ -20,7 +20,7 @@ within seconds, read straight from the file (see "Subtitles" in section 3).
 |---|---|
 | Source | `~/silo-webos` (this repo) |
 | Built package | `silo-webos.ipk` (gitignored, produced by `build.py`) |
-| Installed on TV | `/media/developer/apps/usr/palm/applications/org.silo.webos/` |
+| Installed on TV | `/media/developer/apps/usr/palm/applications/io.github.clacksy.silotv/` |
 | TV access | `ssh c2tv` (root, key-only dropbear; host is DHCP, currently `192.168.1.233`) |
 
 There is no CI, no linter, and no test suite. This folder was originally created
@@ -48,7 +48,7 @@ Vanilla JS, no framework, no bundler. ~2,000 lines total. The only "build" is
 packaging.
 
 ```
-appinfo.json      webOS manifest (id org.silo.webos, 1920x1080, disableBackHistoryAPI)
+appinfo.json      webOS manifest (id io.github.clacksy.silotv, 1920x1080, disableBackHistoryAPI)
 index.html        all screens in one document
 css/app.css       dark TV styling, focus rings, player overlay
 js/api.js         Jellyfin-compatible API client (auth, Quick Connect, media, sessions)
@@ -168,7 +168,7 @@ The webOS `<video>` element does not expose embedded MKV text tracks
 
 `build.py` writes an IPK by hand: `ar` archive of `debian-binary`,
 `control.tar.gz`, `data.tar.gz` (payload under
-`usr/palm/applications/org.silo.webos/`). Push and install over SSH:
+`usr/palm/applications/io.github.clacksy.silotv/`). Push and install over SSH:
 
 Use `tools/deploy.sh`: it builds, installs and relaunches, and **refuses
 while the app is playing something** (installing restarts the app and cuts
@@ -178,9 +178,9 @@ off whatever is being watched; `--force` overrides). The manual steps are:
 cd ~/silo-webos && python3 build.py
 ssh c2tv 'cat > /tmp/silo-webos.ipk' < silo-webos.ipk
 ssh c2tv "luna-send -i luna://com.webos.appInstallService/dev/install \
-  '{\"id\":\"org.silo.webos\",\"ipkUrl\":\"/tmp/silo-webos.ipk\",\"subscribe\":true}'"
+  '{\"id\":\"io.github.clacksy.silotv\",\"ipkUrl\":\"/tmp/silo-webos.ipk\",\"subscribe\":true}'"
 ssh c2tv "sleep 5 | luna-send -n 1 luna://com.webos.applicationManager/launch \
-  '{\"id\":\"org.silo.webos\"}'"
+  '{\"id\":\"io.github.clacksy.silotv\"}'"
 ```
 
 ### Verification without a screen

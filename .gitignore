@@ -5,3 +5,4 @@ silo-webos.ipk
 js/seed.js
 
 .DS_Store
+dist/

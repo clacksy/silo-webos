@@ -18,10 +18,10 @@ esac
 python3 build.py >/dev/null
 ssh c2tv 'cat > /tmp/silo-webos.ipk' < silo-webos.ipk
 ssh c2tv "luna-send -n 6 -w 60000 luna://com.webos.appInstallService/dev/install \
-  '{\"id\":\"org.silo.webos\",\"ipkUrl\":\"/tmp/silo-webos.ipk\",\"subscribe\":true}' >/dev/null
+  '{\"id\":\"io.github.clacksy.silotv\",\"ipkUrl\":\"/tmp/silo-webos.ipk\",\"subscribe\":true}' >/dev/null
   sleep 3
-  grep '\"version\"' /media/developer/apps/usr/palm/applications/org.silo.webos/appinfo.json
-  luna-send -n 1 luna://com.webos.applicationManager/closeByAppId '{\"id\":\"org.silo.webos\"}' >/dev/null || true
+  grep '\"version\"' /media/developer/apps/usr/palm/applications/io.github.clacksy.silotv/appinfo.json
+  luna-send -n 1 luna://com.webos.applicationManager/closeByAppId '{\"id\":\"io.github.clacksy.silotv\"}' >/dev/null || true
   sleep 2
-  luna-send -n 1 luna://com.webos.applicationManager/launch '{\"id\":\"org.silo.webos\"}' >/dev/null"
+  luna-send -n 1 luna://com.webos.applicationManager/launch '{\"id\":\"io.github.clacksy.silotv\"}' >/dev/null"
 echo "installed and relaunched"

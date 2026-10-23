@@ -17,7 +17,7 @@ import hashlib
 import re
 import sys
 
-APP_ID = "org.silo.webos"
+APP_ID = "io.github.clacksy.silotv"
 ROOT = os.path.dirname(os.path.abspath(__file__))
 with open(os.path.join(ROOT, "appinfo.json")) as fh:
     VERSION = json.load(fh)["version"]

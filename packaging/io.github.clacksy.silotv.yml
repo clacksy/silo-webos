@@ -1,0 +1,35 @@
+# Homebrew Channel listing for Silo TV
+title: Silo TV
+iconUri: https://github.com/clacksy/silo-webos/raw/main/icons/icon400.png
+manifestUrl: https://github.com/clacksy/silo-webos/releases/latest/download/io.github.clacksy.silotv.manifest.json
+category: multimedia
+pool: main
+description: |
+  Unofficial LG webOS client for [Silo](https://siloserver.org/), a self-hosted
+  media server. It talks to Silo's Jellyfin-compatible API, so it needs a Silo
+  server you already run — it is a client only.
+
+  **Features**
+
+  - Quick Connect sign-in (approve a six-digit code from your phone), or use a
+    password with `username#Profile`
+  - Continue watching, Next up, recently added per library, favourites
+  - Library browsing with sort, filter, genre and A–Z jump
+  - Seasons and episodes, with automatic next-episode playback
+  - Subtitles read directly from the file for embedded tracks, with size and
+    style options
+  - Audio and subtitle track pickers, multi-version titles, resume and progress
+    reporting shared with Silo's own apps
+  - Profiles
+
+  Works on rooted televisions through Homebrew Channel; the app itself asks for
+  no special privileges.
+
+  Not affiliated with Silo Media L.L.C.
+screenshots:
+  - https://github.com/clacksy/silo-webos/raw/main/docs/screenshots/home.jpg
+  - https://github.com/clacksy/silo-webos/raw/main/docs/screenshots/library.jpg
+  - url: https://github.com/clacksy/silo-webos/raw/main/docs/screenshots/detail.jpg
+    caption: Detail view with version and audio selection
+  - https://github.com/clacksy/silo-webos/raw/main/docs/screenshots/search.jpg
+  - https://github.com/clacksy/silo-webos/raw/main/docs/screenshots/settings.jpg
