@@ -12,6 +12,11 @@ import os
 import tarfile
 import time
 
+import argparse
+import hashlib
+import re
+import sys
+
 APP_ID = "org.silo.webos"
 ROOT = os.path.dirname(os.path.abspath(__file__))
 with open(os.path.join(ROOT, "appinfo.json")) as fh:
@@ -87,7 +92,48 @@ Description: Silo client for LG webOS TVs
 """.format(app_id=APP_ID, version=VERSION)
 
 
+def check_release_safe():
+    """Refuse to build a distributable package containing a session token.
+
+    Reads js/seed.js as code, with comments stripped, so the placeholder
+    examples written in the template's documentation do not trip the check.
+    """
+    seed = os.path.join(ROOT, "js", "seed.js")
+    problems = []
+    if os.path.exists(seed):
+        raw = open(seed, encoding="utf-8").read()
+        code = re.sub(r"/\*.*?\*/", "", raw, flags=re.S)
+        code = re.sub(r"(?m)^\s*//.*$", "", code)
+
+        token = re.search(r"""token\s*:\s*['\"]([^'\"]*)['\"]""", code)
+        if token and token.group(1).strip():
+            problems.append("js/seed.js contains an access token")
+
+        for pattern, label in (
+            (r"""SILO_DEFAULT_SERVER\s*=\s*['\"]([^'\"]*)['\"]""", "defaults to a real server"),
+            (r"""server\s*:\s*['\"]([^'\"]*)['\"]""", "seeds a session against a real server"),
+        ):
+            found = re.search(pattern, code)
+            if found and found.group(1).strip() and "example." not in found.group(1):
+                problems.append("js/seed.js " + label + ": " + found.group(1))
+
+    if problems:
+        print("REFUSING to build a release package:", file=sys.stderr)
+        for item in problems:
+            print("  - " + item, file=sys.stderr)
+        print("\nBuild a neutral js/seed.js from js/seed.example.js first.", file=sys.stderr)
+        sys.exit(1)
+    print("release check: no session token in the payload")
+
+
 def main():
+    parser = argparse.ArgumentParser(description="Build silo-webos.ipk")
+    parser.add_argument("--release", action="store_true",
+                        help="verify the package is safe to distribute (no token)")
+    args = parser.parse_args()
+    if args.release:
+        check_release_safe()
+
     payload = collect_payload()
     data_tar = tar_gz(payload)
     control_tar = tar_gz([("control", CONTROL.encode("utf-8"), 0o644)])
@@ -102,7 +148,9 @@ def main():
     with open(OUT, "wb") as fh:
         fh.write(ipk)
 
+    digest = hashlib.sha256(ipk).hexdigest()
     print("built %s" % OUT)
+    print("  sha256: %s" % digest)
     print("  payload files: %d" % len(payload))
     print("  size: %.1f KB" % (len(ipk) / 1024.0))
     for arcname, data, _ in payload:
