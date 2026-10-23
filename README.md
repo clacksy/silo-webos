@@ -81,6 +81,24 @@ python3 tools/smoke_test.py
 There is no automated test for playback or subtitle rendering: those need eyes
 on a real screen.
 
+
+## Debugging on the TV
+
+The web inspector listens on port 9998 but only on the TV's loopback interface,
+and only while a web app is running. `tools/inspect.sh` handles both:
+
+```sh
+tools/inspect.sh          # launches the app if needed, tunnels, prints the target URL
+# in Chrome: chrome://inspect -> Configure... -> localhost:9998
+```
+
+`tools/tour.sh` screenshots five screens and reports console errors and failed
+requests — useful after a deploy:
+
+```sh
+tools/tour.sh             # writes ./tour-out/<timestamp>/
+```
+
 ## Layout
 
 ```
